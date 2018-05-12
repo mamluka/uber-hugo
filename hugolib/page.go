@@ -48,6 +48,7 @@ import (
 	"github.com/gohugoio/hugo/compare"
 	"github.com/gohugoio/hugo/source"
 	"github.com/spf13/cast"
+	"github.com/globalsign/mgo/bson"
 )
 
 var (
@@ -89,9 +90,138 @@ const (
 	pageResourceType = "page"
 )
 
+type PageModel struct {
+	ID    bson.ObjectId `bson:"_id,omitempty"`
+	Kind  string
+
+	PageIds PageIds
+
+	Resources         resource.Resources
+	ResourcesMetadata []map[string]interface{}
+	TranslationsIds      PageIds
+	TranslationKey    string
+	Params            map[string]interface{}
+
+	ContentV        template.HTML
+	Summary         template.HTML
+	TableOfContents template.HTML
+
+	//PageWithoutContent *PageWithoutContent
+
+	Aliases []string
+
+	Images []Image
+	Videos []Video
+
+	Truncated bool
+	Draft     bool
+	Status    string
+
+	// PageMeta contains page stats such as word count etc.
+	PageMeta
+
+	// Markup contains the markup type for the content.
+	Markup string
+
+	Extension   string
+	ContentType string
+	Renderable  bool
+
+	Layout string
+
+	// For npn-renderable pages (see IsRenderable), the content itself
+	// is used as template and the template name is stored here.
+	SelfLayout string
+
+	LinkTitle string
+
+	Frontmatter []byte
+
+	// rawContent is the raw content read from the content file.
+	RawContent []byte
+
+	// workContent is a copy of rawContent that may be mutated during site build.
+	WorkContent []byte
+
+	// whether the content is in a CJK language.
+	IsCJKLanguage bool
+
+	ShortcodeState *shortcodeHandler
+
+	// the content stripped for HTML
+	Plain      string // TODO should be []byte `bson:"-"`
+	PlainWords []string
+
+	// rendering configuration
+	RenderingConfig *helpers.BlackFriday
+
+	// menus
+	PageMenus PageMenus
+
+	Position
+
+	GitInfo *gitmap.GitInfo
+
+	// This was added as part of getting the Nodes (taxonomies etc.) to work as
+	// Pages in Hugo 0.18.
+	// It is deliberately named similar to Section, but not exported (for now).
+	// We currently have only one level of section in Hugo, but the page can live
+	// any number of levels down the file path.
+	// To support taxonomies like /categories/hugo etc. we will need to keep track
+	// of that information in a general way.
+	// So, sections represents the path to the content, i.e. a content file or a
+	// virtual content file in the situations where a taxonomy or a section etc.
+	// isn't accomanied by one.
+	Sections []string
+
+	// Will only be set for sections and regular pages.
+	Parent *Page
+	ParentId PageId
+
+	// When we create paginator pages, we create a copy of the original,
+	// but keep track of it here.
+	OrigOnCopy *Page
+	OrigOnCopyId PageId
+
+	// Will only be set for section pages and the home page.
+	SubSections Pages
+	SubSectionsIds PageIds
+
+	Title       string
+	Description string
+	Keywords    []string
+	Data        map[string]interface{}
+
+	PageDates pagemeta.PageDates
+
+	Sitemap        Sitemap
+	UrlPath pagemeta.URLPath
+	FrontMatterURL string
+
+	PermaLink    string
+	RelPermalink string
+
+	RelTargetPathBase string
+
+	ResourcePath string
+
+	Headless bool
+
+	LayoutDescriptor output.LayoutDescriptor
+
+	//scratch *Scratch `bson:"-"`
+
+	Lang string
+
+	OutputFormats output.Formats
+
+	MainPageOutput PageOutput
+}
+
 type Page struct {
-	*pageInit
-	*pageContentInit
+	ID bson.ObjectId `bson:"_id,omitempty"`
+	*pageInit        `bson:"-"`
+	*pageContentInit `bson:"-"`
 
 	// Kind is the discriminator that identifies the different page types
 	// in the different page collections. This can, as an example, be used
@@ -109,6 +239,8 @@ type Page struct {
 	// This collection will be nil for regular pages.
 	Pages Pages
 
+	PageIds PageIds
+
 	// Since Hugo 0.32, a Page can have resources such as images and CSS associated
 	// with itself. The resource will typically be placed relative to the Page,
 	// but templates should use the links (Permalink and RelPermalink)
@@ -117,25 +249,26 @@ type Page struct {
 
 	// This is the raw front matter metadata that is going to be assigned to
 	// the Resources above.
-	resourcesMetadata []map[string]interface{}
+	resourcesMetadata []map[string]interface{} `bson:"-"`
 
 	// translations will contain references to this page in other language
 	// if available.
-	translations Pages
+	translations Pages `bson:"-"`
+	translationsIds PageIds
 
 	// A key that maps to translation(s) of this page. This value is fetched
 	// from the page front matter.
-	translationKey string
+	translationKey string `bson:"-"`
 
 	// Params contains configuration defined in the params section of page frontmatter.
-	params map[string]interface{}
+	params map[string]interface{} `bson:"-"`
 
 	// Content sections
-	contentv        template.HTML
-	summary         template.HTML
+	contentv        template.HTML `bson:"-"`
+	summary         template.HTML `bson:"-"`
 	TableOfContents template.HTML
 	// Passed to the shortcodes
-	pageWithoutContent *PageWithoutContent
+	pageWithoutContent *PageWithoutContent `bson:"-"`
 
 	Aliases []string
 
@@ -152,44 +285,44 @@ type Page struct {
 	// Markup contains the markup type for the content.
 	Markup string
 
-	extension   string
-	contentType string
-	renderable  bool
+	extension   string `bson:"-"`
+	contentType string `bson:"-"`
+	renderable  bool   `bson:"-"`
 
 	Layout string
 
 	// For npn-renderable pages (see IsRenderable), the content itself
 	// is used as template and the template name is stored here.
-	selfLayout string
+	selfLayout string `bson:"-"`
 
-	linkTitle string
+	linkTitle string `bson:"-"`
 
-	frontmatter []byte
+	frontmatter []byte `bson:"-"`
 
 	// rawContent is the raw content read from the content file.
-	rawContent []byte
+	rawContent []byte `bson:"-"`
 
 	// workContent is a copy of rawContent that may be mutated during site build.
-	workContent []byte
+	workContent []byte `bson:"-"`
 
 	// whether the content is in a CJK language.
-	isCJKLanguage bool
+	isCJKLanguage bool `bson:"-"`
 
-	shortcodeState *shortcodeHandler
+	shortcodeState *shortcodeHandler `bson:"-"`
 
 	// the content stripped for HTML
-	plain      string // TODO should be []byte
-	plainWords []string
+	plain      string // TODO should be []byte `bson:"-"`
+	plainWords []string `bson:"-"`
 
 	// rendering configuration
-	renderingConfig *helpers.BlackFriday
+	renderingConfig *helpers.BlackFriday `bson:"-"`
 
 	// menus
-	pageMenus PageMenus
+	pageMenus PageMenus `bson:"-"`
 
-	Source
+	Source `bson:"-"`
 
-	Position `json:"-"`
+	Position
 
 	GitInfo *gitmap.GitInfo
 
@@ -203,69 +336,72 @@ type Page struct {
 	// So, sections represents the path to the content, i.e. a content file or a
 	// virtual content file in the situations where a taxonomy or a section etc.
 	// isn't accomanied by one.
-	sections []string
+	sections []string `bson:"-"`
 
 	// Will only be set for sections and regular pages.
-	parent *Page
+	parent *Page `bson:"-"`
+	ParentId PageId
 
 	// When we create paginator pages, we create a copy of the original,
 	// but keep track of it here.
-	origOnCopy *Page
+	origOnCopy *Page `bson:"-"`
+	origOnCopyId PageId
 
 	// Will only be set for section pages and the home page.
-	subSections Pages
+	subSections Pages `bson:"-"`
+	SubSectionsIds PageIds
 
-	s *Site
+	s *Site `bson:"-"`
 
 	// Pulled over from old Node. TODO(bep) reorg and group (embed)
 
-	Site *SiteInfo `json:"-"`
+	Site *SiteInfo `bson:"-"`
 
 	title       string
-	Description string
-	Keywords    []string
+	Description string   `bson:"-"`
+	Keywords    []string `bson:"-"`
 	Data        map[string]interface{}
 
-	pagemeta.PageDates
+	pagemeta.PageDates `bson:"-"`
 
-	Sitemap Sitemap
-	pagemeta.URLPath
-	frontMatterURL string
+	Sitemap        Sitemap
+	pagemeta.URLPath      `bson:"-"`
+	frontMatterURL string `bson:"-"`
 
-	permalink    string
-	relPermalink string
+	permalink    string `bson:"-"`
+	relPermalink string `bson:"-"`
 
 	// relative target path without extension and any base path element from the baseURL.
 	// This is used to construct paths in the page resources.
-	relTargetPathBase string
+	relTargetPathBase string `bson:"-"`
 	// Is set to a forward slashed path if this is a Page resources living in a folder below its owner.
-	resourcePath string
+	resourcePath string `bson:"-"`
 
 	// This is enabled if it is a leaf bundle (the "index.md" type) and it is marked as headless in front matter.
 	// Being headless means that
 	// 1. The page itself is not rendered to disk
 	// 2. It is not available in .Site.Pages etc.
 	// 3. But you can get it via .Site.GetPage
-	headless bool
+	headless bool `bson:"-"`
 
-	layoutDescriptor output.LayoutDescriptor
+	layoutDescriptor output.LayoutDescriptor `bson:"-"`
 
-	scratch *Scratch
+	scratch *Scratch `bson:"-"`
 
 	// It would be tempting to use the language set on the Site, but in they way we do
 	// multi-site processing, these values may differ during the initial page processing.
-	language *helpers.Language
+	language *helpers.Language `bson:"-"`
 
-	lang string
+	lang string `bson:"-"`
 
 	// The output formats this page will be rendered to.
-	outputFormats output.Formats
+	outputFormats output.Formats `bson:"-"`
 
 	// This is the PageOutput that represents the first item in outputFormats.
 	// Use with care, as there are potential for inifinite loops.
-	mainPageOutput *PageOutput
+	mainPageOutput *PageOutput `bson:"-"`
 
-	targetPathDescriptorPrototype *targetPathDescriptor
+	targetPathDescriptorPrototype *targetPathDescriptor `bson:"-"`
 }
 
 func stackTrace() string {
@@ -864,10 +1000,10 @@ func (p *Page) setAutoSummary() error {
 
 func (p *Page) renderContent(content []byte) []byte {
 	return p.s.ContentSpec.RenderBytes(&helpers.RenderingContext{
-		Content: content, RenderTOC: true, PageFmt: p.determineMarkupType(),
+		Content:    content, RenderTOC: true, PageFmt: p.determineMarkupType(),
 		Cfg:        p.Language(),
 		DocumentID: p.UniqueID(), DocumentName: p.Path(),
-		Config: p.getRenderingConfig()})
+		Config:     p.getRenderingConfig()})
 }
 
 func (p *Page) getRenderingConfig() *helpers.BlackFriday {
@@ -914,11 +1050,11 @@ func (s *Site) newPageFromFile(fi *fileInfo) *Page {
 		contentType:     "",
 		Source:          Source{File: fi},
 		Keywords:        []string{}, Sitemap: Sitemap{Priority: -1},
-		params:       make(map[string]interface{}),
-		translations: make(Pages, 0),
-		sections:     sectionsFromFile(fi),
-		Site:         &s.Info,
-		s:            s,
+		params:          make(map[string]interface{}),
+		translations:    make(Pages, 0),
+		sections:        sectionsFromFile(fi),
+		Site:            &s.Info,
+		s:               s,
 	}
 }
 

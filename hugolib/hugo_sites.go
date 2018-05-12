@@ -515,13 +515,15 @@ func (h *HugoSites) removePageByFilename(filename string) {
 
 func (h *HugoSites) setupTranslations() {
 	for _, s := range h.Sites {
-		for _, p := range s.rawAllPages {
+
+		//for _, p := range s.rawAllPages {
+		s.pageStore.eachRawPages(func(p *Page)  {
 			if p.Kind == kindUnknown {
 				p.Kind = p.s.kindFromSections(p.sections)
 			}
 
 			if !p.s.isEnabled(p.Kind) {
-				continue
+				return
 			}
 
 			shouldBuild := p.shouldBuild()
@@ -531,9 +533,11 @@ func (h *HugoSites) setupTranslations() {
 					s.headlessPages = append(s.headlessPages, p)
 				} else {
 					s.Pages = append(s.Pages, p)
+					s.pageIds = append(s.pageIds,p.ID)
 				}
 			}
-		}
+		})
+		//}
 	}
 
 	allPages := make(Pages, 0)

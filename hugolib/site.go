@@ -53,6 +53,7 @@ import (
 	"github.com/spf13/cast"
 	"github.com/spf13/nitro"
 	"github.com/spf13/viper"
+	"github.com/globalsign/mgo/bson"
 )
 
 var _ = transform.AbsURL
@@ -81,6 +82,8 @@ var defaultTimer *nitro.B
 // 5. The entire collection of files is written to disk.
 type Site struct {
 	owner *HugoSites
+
+	pageIds []bson.ObjectId
 
 	*PageCollections
 
@@ -143,6 +146,8 @@ type Site struct {
 	titleFunc func(s string) string
 
 	relatedDocsHandler *relatedDocsHandler
+
+	pageStore *PageStore
 }
 
 type siteRenderingContext struct {
@@ -259,6 +264,7 @@ func newSite(cfg deps.DepsCfg) (*Site, error) {
 		return nil, err
 	}
 
+	sitePageStore := &PageStore{}
 	s := &Site{
 		PageCollections:     c,
 		layoutHandler:       output.NewLayoutHandler(cfg.Cfg.GetString("themesDir") != ""),
@@ -271,9 +277,12 @@ func newSite(cfg deps.DepsCfg) (*Site, error) {
 		outputFormatsConfig: siteOutputFormatsConfig,
 		mediaTypesConfig:    siteMediaTypesConfig,
 		frontmatterHandler:  frontMatterHandler,
+		pageStore: sitePageStore,
 	}
 
 	s.Info = newSiteInfo(siteBuilderCfg{s: s, pageCollections: c, language: s.Language})
+
+	sitePageStore.initPageStore(s)
 
 	return s, nil
 
