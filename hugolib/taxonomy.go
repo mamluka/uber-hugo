@@ -42,6 +42,18 @@ type WeightedPage struct {
 	*Page
 }
 
+type WeightedPageIds struct {
+	ID          string `bson:"_id,omitempty"`
+	Weight      int
+	PageId      PageId
+	Key         string
+	Plural      string
+	Params      map[string]interface{}
+	SearchKeys  []string
+	Cardinality int
+	SearchLabel string
+}
+
 func (w WeightedPage) String() string {
 	return fmt.Sprintf("WeightedPage(%d,%q)", w.Weight, w.Page.title)
 }
@@ -66,7 +78,8 @@ func (i Taxonomy) Get(key string) WeightedPages {
 func (i Taxonomy) Count(key string) int { return len(i[key]) }
 
 func (i Taxonomy) add(key string, w WeightedPage) {
-	i[key] = append(i[key], w)
+
+	i[key] = WeightedPages{w}
 }
 
 // TaxonomyArray returns an ordered taxonomy with a non defined order.

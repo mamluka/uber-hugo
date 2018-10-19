@@ -112,8 +112,8 @@ func (s *siteContentProcessor) process(ctx context.Context) error {
 			if s.partialBuild {
 				s.site.replacePage(p)
 			} else {
-				s.site.addPage(p)
-				s.site.pageStore.AddToAllRawrPages(p)
+				//s.site.addPage(p)
+				s.site.PageStore.AddToAllRawrPages(p)
 			}
 		}
 		return nil

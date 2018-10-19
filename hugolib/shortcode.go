@@ -215,7 +215,7 @@ func (s *shortcodeHandler) createShortcodePlaceholder() string {
 	if s.placeholderFunc != nil {
 		return s.placeholderFunc()
 	}
-	return fmt.Sprintf("HAHA%s-%p-%d-HBHB", shortcodePlaceholderPrefix, s.p.Page, s.nextPlaceholderID())
+	return fmt.Sprintf("HAHA%s-%p-%d-HBHB", shortcodePlaceholderPrefix, s.p.Page.ID, s.nextPlaceholderID())
 }
 
 func newShortcodeHandler(p *Page) *shortcodeHandler {

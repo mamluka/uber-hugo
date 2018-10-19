@@ -96,6 +96,7 @@ func (ns *Namespace) Sort(seq interface{}, args ...interface{}) (interface{}, er
 				var err error
 				for _, elemName := range path {
 					v, err = evaluateSubElem(v, elemName)
+
 					if err != nil {
 						return nil, err
 					}

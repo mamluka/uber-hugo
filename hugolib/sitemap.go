@@ -20,13 +20,14 @@ import (
 
 // Sitemap configures the sitemap to be generated.
 type Sitemap struct {
-	ChangeFreq string
-	Priority   float64
-	Filename   string
+	ChangeFreq    string
+	Priority      float64
+	Filename      string
+	IndexFilename string
 }
 
 func parseSitemap(input map[string]interface{}) Sitemap {
-	sitemap := Sitemap{Priority: -1, Filename: "sitemap.xml"}
+	sitemap := Sitemap{Priority: -1, Filename: "sitemap.xml", IndexFilename: "sitemap-index.xml"}
 
 	for key, value := range input {
 		switch key {

@@ -17,11 +17,10 @@ import (
 	"fmt"
 	"path"
 	"strconv"
-	"strings"
-
 	"github.com/gohugoio/hugo/helpers"
 
 	radix "github.com/hashicorp/go-immutable-radix"
+	"time"
 )
 
 // Sections returns the top level sections.
@@ -139,6 +138,116 @@ func (p *Page) Sections() Pages {
 	return p.subSections
 }
 
+func (p *Page) SubSectionsPageIds() []string {
+	return p.SubSectionsIds
+}
+
+func (p *Page) AllSectionNames() []string {
+	return p.sections
+}
+
+func (p *Page) AllAboveSectionsPageIds() PageIds {
+	return reverse(p.findAllAboveSectionsRec(p.ParentId))
+}
+
+func (p *Page) AllSubSectionsPageIds() PageIds {
+	return p.findAllSubSectionsRec(p.SubSectionsIds)
+}
+
+func (p *Page) AllSubSectionsPagesPageIds() PageIds {
+
+	if len(p.SubSectionsIds) == 0 {
+		return p.PageIds
+	}
+
+	cache_items, found := p.s.PageStore.cache.Get("AllSubSectionsPagesPageIds" +string(p.ID))
+
+	if found {
+		return cache_items.(PageIds)
+	}
+
+	start_p := time.Now()
+	pageIds := p.findAllSubSectionsPagesPageIdsRec(p.SubSectionsPageIds())
+	pageIds =append(pageIds,p.PageIds...)
+
+	if time.Now().Sub(start_p).Seconds() > 0.5 {
+		elapsed := time.Since(start_p)
+		fmt.Println("get all sections page page ids ", " ", p.ID, " ", p.Kind, " ", elapsed, " ", MyCaller())
+	}
+
+	p.s.PageStore.cache.SetDefault("AllSubSectionsPagesPageIds" + string(p.ID), pageIds)
+
+	return pageIds
+}
+
+func (p *Page) findAllAboveSectionsRec(pageId PageId) PageIds {
+	var allParents PageIds
+
+	if pageId == "" {
+		return allParents
+	}
+
+	page := p.s.PageStore.getActualPageById(pageId)
+
+	if page.ParentId == "" {
+		return allParents
+	}
+
+	pageParent := p.s.PageStore.getActualPageById(page.ParentId)
+
+	if pageParent.Kind == KindHome {
+		return append(allParents, PageId(page.ID))
+	} else {
+		allParents = append(allParents, PageId(page.ID))
+		allParents = append(allParents, p.findAllAboveSectionsRec(page.ParentId)...)
+	}
+
+	return allParents
+}
+
+func reverse(ss PageIds) PageIds {
+	last := len(ss) - 1
+	for i := 0; i < len(ss)/2; i++ {
+		ss[i], ss[last-i] = ss[last-i], ss[i]
+	}
+
+	return ss
+}
+
+func (p *Page) findAllSubSectionsRec(pageIds []string) PageIds {
+
+	var allSections PageIds
+
+	for _, pageId := range pageIds {
+		page := p.s.PageStore.getActualPageById(PageId(pageId))
+		if len(page.SubSectionsIds) > 0 {
+			allSections = append(allSections, PageId(page.ID))
+			allSections = append(allSections, p.findAllSubSectionsRec(page.SubSectionsIds)...)
+		} else {
+			return append(allSections, PageId(page.ID))
+		}
+
+	}
+
+	return allSections
+}
+
+func (p *Page) findAllSubSectionsPagesPageIdsRec(pageIds []string) PageIds {
+	var allSectionsPages PageIds
+
+	for _, pageId := range pageIds {
+		page := p.s.PageStore.getActualPageById(PageId(pageId))
+		if len(page.SubSectionsIds) > 0 {
+			allSectionsPages = append(allSectionsPages, page.PageIds...)
+			allSectionsPages = append(allSectionsPages, p.findAllSubSectionsPagesPageIdsRec(page.SubSectionsIds)...)
+		} else {
+			allSectionsPages = append(allSectionsPages, page.PageIds...)
+		}
+
+	}
+	return allSectionsPages
+}
+
 func (s *Site) assembleSections() Pages {
 	var newPages Pages
 
@@ -150,8 +259,11 @@ func (s *Site) assembleSections() Pages {
 	sectionPages := make(map[string]*Page)
 
 	// The sections with content files will already have been created.
-	for _, sect := range s.findPagesByKind(KindSection) {
-		sectionPages[path.Join(sect.sections...)] = sect
+	sections := s.PageStore.findPagesByKind(KindSection)
+
+	for i, sect := range sections {
+		sectPage := &sections[i]
+		sectionPages[path.Join(sect.sections...)] = sectPage
 	}
 
 	const (
@@ -163,20 +275,21 @@ func (s *Site) assembleSections() Pages {
 	var (
 		inPages    = radix.New().Txn()
 		inSections = radix.New().Txn()
-		undecided  Pages
+		undecided  []*SectionGrouping
 	)
 
-	home := s.findFirstPageByKindIn(KindHome, s.Pages)
+	counter := 0
+	home := s.PageStore.findFirstPageByKindIn(KindHome)
 
-	for i, p := range s.Pages {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		if p.Kind != KindPage {
-			continue
+			return nil
 		}
 
 		if len(p.sections) == 0 {
 			// Root level pages. These will have the home page as their Parent.
-			p.parent = home
-			continue
+			p.ParentId = PageId(home.ID)
+			return nil
 		}
 
 		sectionKey := path.Join(p.sections...)
@@ -201,12 +314,16 @@ func (s *Site) assembleSections() Pages {
 		}
 
 		if found {
-			pagePath := path.Join(sectionKey, sectPageKey, strconv.Itoa(i))
-			inPages.Insert([]byte(pagePath), p)
+			pagePath := path.Join(sectionKey, sectPageKey, strconv.Itoa(counter))
+			inPages.Insert([]byte(pagePath), p.toSectionGrouping())
 		} else {
-			undecided = append(undecided, p)
+			undecided = append(undecided, p.toSectionGrouping())
 		}
-	}
+
+		counter++
+
+		return nil
+	},false)
 
 	// Create any missing sections in the tree.
 	// A sub-section needs a content file, but to create a navigational tree,
@@ -227,13 +344,13 @@ func (s *Site) assembleSections() Pages {
 	}
 
 	for k, sect := range sectionPages {
-		inPages.Insert([]byte(path.Join(k, sectSectKey)), sect)
-		inSections.Insert([]byte(k), sect)
+		inPages.Insert([]byte(path.Join(k, sectSectKey)), sect.toSectionGrouping())
+		inSections.Insert([]byte(k), sect.toSectionGrouping())
 	}
 
 	var (
-		currentSection *Page
-		children       Pages
+		currentSection *SectionGrouping
+		children       PageIds
 		rootSections   = inSections.Commit().Root()
 	)
 
@@ -241,7 +358,7 @@ func (s *Site) assembleSections() Pages {
 		// Now we can decide where to put this page into the tree.
 		sectionKey := path.Join(p.sections...)
 		_, v, _ := rootSections.LongestPrefix([]byte(sectionKey))
-		sect := v.(*Page)
+		sect := v.(*SectionGrouping)
 		pagePath := path.Join(path.Join(sect.sections...), sectSectKey, "u", strconv.Itoa(i))
 		inPages.Insert([]byte(pagePath), p)
 	}
@@ -249,83 +366,140 @@ func (s *Site) assembleSections() Pages {
 	var rootPages = inPages.Commit().Root()
 
 	rootPages.Walk(func(path []byte, v interface{}) bool {
-		p := v.(*Page)
+		p := v.(*SectionGrouping)
 
 		if p.Kind == KindSection {
 			if currentSection != nil {
 				// A new section
-				currentSection.setPagePages(children)
+				currentSection.childrenPageIds = children
 			}
 
 			currentSection = p
-			children = make(Pages, 0)
+			children = make(PageIds, 0)
 
 			return false
 
 		}
 
 		// Regular page
-		p.parent = currentSection
-		children = append(children, p)
+		if currentSection != nil {
+			p.parentId = currentSection.pageId
+		}
+
+		children = append(children, p.pageId)
 		return false
 	})
 
 	if currentSection != nil {
-		currentSection.setPagePages(children)
+		currentSection.childrenPageIds = children
 	}
+
+	//sectRootPagesMap := make(map[PageId][]PageId)
 
 	// Build the sections hierarchy
 	for _, sect := range sectionPages {
 		if len(sect.sections) == 1 {
-			sect.parent = home
+			sect.ParentId = PageId(home.ID)
+			sect.parent = &home
+			//sectRootPagesMap[sect.ID] = [sect.ParentId
 		} else {
 			parentSearchKey := path.Join(sect.sections[:len(sect.sections)-1]...)
+
 			_, v, _ := rootSections.LongestPrefix([]byte(parentSearchKey))
-			p := v.(*Page)
-			sect.parent = p
+			p := v.(*SectionGrouping)
+			sect.ParentId = p.pageId
+			//sectRootPagesMap[sect.ID] = sect.ParentId
+
+			for _, section := range sectionPages {
+				if PageId(section.ID) == p.pageId {
+					sect.parent = section
+				}
+			}
 		}
 
-		if sect.parent != nil {
-			sect.parent.subSections = append(sect.parent.subSections, sect)
+		if sect.ParentId != "" {
+			if s.PageStore.pageExists(sect.ParentId) {
+				//s.PageStore.savePage(sect.ParentId, func(pageModel *PageModel) {
+				//	pageModel.SubSectionsIds = append(pageModel.SubSectionsIds, sect.ID)
+				//})
+				s.PageStore.storeSubSectionsPageIds(sect.ParentId,[]PageId{PageId(sect.ID)})
+			} else {
+				sect.parent.SubSectionsIds = append(sect.parent.SubSectionsIds, sect.ID)
+			}
 		}
+
 	}
 
-	var (
-		sectionsParamId      = "mainSections"
-		sectionsParamIdLower = strings.ToLower(sectionsParamId)
-		mainSections         interface{}
-		mainSectionsFound    bool
-		maxSectionWeight     int
-	)
+	rootPages.Walk(func(path []byte, v interface{}) bool {
 
-	mainSections, mainSectionsFound = s.Info.Params[sectionsParamIdLower]
+		p := v.(*SectionGrouping)
 
-	for _, sect := range sectionPages {
-		if sect.parent != nil {
-			sect.parent.subSections.Sort()
+		if p.Kind == KindSection {
+
+			for _, section := range sectionPages {
+				if PageId(section.ID) == p.pageId {
+					section.PageIds = p.childrenPageIds
+
+					if section.saved {
+						s.PageStore.updateField(p.pageId, func(pageModel *PageModel) {
+							pageModel.ParentId = section.ParentId
+						})
+						s.PageStore.storePageIds(*section)
+					}
+
+					return false
+				}
+			}
+
+			return false
 		}
 
-		for i, p := range sect.Pages {
-			if i > 0 {
-				p.NextInSection = sect.Pages[i-1]
-			}
-			if i < len(sect.Pages)-1 {
-				p.PrevInSection = sect.Pages[i+1]
-			}
-		}
+		s.PageStore.updateField(p.pageId, func(pageModel *PageModel) {
+			pageModel.ParentId = p.parentId
+		})
 
-		if !mainSectionsFound {
-			weight := len(sect.Pages) + (len(sect.Sections()) * 5)
-			if weight >= maxSectionWeight {
-				mainSections = []string{sect.Section()}
-				maxSectionWeight = weight
-			}
-		}
-	}
+		s.PageStore.storeSubSectionsPageIds(p.pageId,p.childrenPageIds)
 
-	// Try to make this as backwards compatible as possible.
-	s.Info.Params[sectionsParamId] = mainSections
-	s.Info.Params[sectionsParamIdLower] = mainSections
+		return false
+	})
+
+	//TODO DAVID this is not needed in normal use
+	//var (
+	//	sectionsParamId      = "mainSections"
+	//	sectionsParamIdLower = strings.ToLower(sectionsParamId)
+	//	mainSections         interface{}
+	//	mainSectionsFound    bool
+	//	maxSectionWeight     int
+	//)
+	//
+	//mainSections, mainSectionsFound = s.Info.Params[sectionsParamIdLower]
+	//
+	//for _, sect := range sectionPages {
+	//	if sect.parent != nil {
+	//		sect.parent.subSections.Sort()
+	//	}
+	//
+	//	for i, p := range sect.Pages {
+	//		if i > 0 {
+	//			p.NextInSection = sect.Pages[i-1]
+	//		}
+	//		if i < len(sect.Pages)-1 {
+	//			p.PrevInSection = sect.Pages[i+1]
+	//		}
+	//	}
+	//
+	//	if !mainSectionsFound {
+	//		weight := len(sect.Pages) + (len(sect.Sections()) * 5)
+	//		if weight >= maxSectionWeight {
+	//			mainSections = []string{sect.Section()}
+	//			maxSectionWeight = weight
+	//		}
+	//	}
+	//}
+	//
+	//// Try to make this as backwards compatible as possible.
+	//s.Info.Params[sectionsParamId] = mainSections
+	//s.Info.Params[sectionsParamIdLower] = mainSections
 
 	return newPages
 

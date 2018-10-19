@@ -38,7 +38,9 @@ import (
 	"github.com/markbates/inflect"
 	"golang.org/x/net/context"
 
+	"github.com/adam-hanna/arrayOperations"
 	"github.com/fsnotify/fsnotify"
+	"github.com/globalsign/mgo/bson"
 	bp "github.com/gohugoio/hugo/bufferpool"
 	"github.com/gohugoio/hugo/deps"
 	"github.com/gohugoio/hugo/helpers"
@@ -53,7 +55,7 @@ import (
 	"github.com/spf13/cast"
 	"github.com/spf13/nitro"
 	"github.com/spf13/viper"
-	"github.com/globalsign/mgo/bson"
+	"runtime/debug"
 )
 
 var _ = transform.AbsURL
@@ -83,7 +85,7 @@ var defaultTimer *nitro.B
 type Site struct {
 	owner *HugoSites
 
-	pageIds []bson.ObjectId
+	PageIds []string
 
 	*PageCollections
 
@@ -147,7 +149,7 @@ type Site struct {
 
 	relatedDocsHandler *relatedDocsHandler
 
-	pageStore *PageStore
+	PageStore *PageStore
 }
 
 type siteRenderingContext struct {
@@ -157,14 +159,18 @@ type siteRenderingContext struct {
 func (s *Site) initRenderFormats() {
 	formatSet := make(map[string]bool)
 	formats := output.Formats{}
-	for _, p := range s.Pages {
+	s.PageStore.eachPages(func(p *Page) (error) {
+		//for _, p := range s.Pages {
 		for _, f := range p.outputFormats {
 			if !formatSet[f.Name] {
 				formats = append(formats, f)
 				formatSet[f.Name] = true
 			}
 		}
-	}
+
+		return nil
+	}, true)
+	//}
 
 	sort.Sort(formats)
 	s.renderFormats = formats
@@ -277,7 +283,7 @@ func newSite(cfg deps.DepsCfg) (*Site, error) {
 		outputFormatsConfig: siteOutputFormatsConfig,
 		mediaTypesConfig:    siteMediaTypesConfig,
 		frontmatterHandler:  frontMatterHandler,
-		pageStore: sitePageStore,
+		PageStore:           sitePageStore,
 	}
 
 	s.Info = newSiteInfo(siteBuilderCfg{s: s, pageCollections: c, language: s.Language})
@@ -1371,16 +1377,18 @@ func (s *Site) readAndProcessContent(filenames ...string) error {
 func (s *Site) buildSiteMeta() (err error) {
 	defer s.timerStep("build Site meta")
 
-	if len(s.Pages) == 0 {
+	if s.PageStore.countPages() == 0 {
 		return
 	}
 
 	s.assembleTaxonomies()
 
-	for _, p := range s.AllPages {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		// this depends on taxonomies
 		p.setValuesForKind(s)
-	}
+
+		return nil
+	}, true)
 
 	return
 }
@@ -1453,17 +1461,18 @@ func (s *Site) assembleMenus() {
 	}
 
 	sectionPagesMenu := s.Info.sectionPagesMenu
-	pages := s.Pages
+	//pages := s.Pages
 
 	if sectionPagesMenu != "" {
-		for _, p := range pages {
+		//for _, p := range pages {
+		s.PageStore.eachPages(func(p *Page) (error) {
 			if p.Kind == KindSection {
 				// From Hugo 0.22 we have nested sections, but until we get a
 				// feel of how that would work in this setting, let us keep
 				// this menu for the top level only.
 				id := p.Section()
 				if _, ok := flat[twoD{sectionPagesMenu, id}]; ok {
-					continue
+					return nil
 				}
 
 				me := MenuEntry{Identifier: id,
@@ -1472,11 +1481,14 @@ func (s *Site) assembleMenus() {
 					URL:    p.RelPermalink()}
 				flat[twoD{sectionPagesMenu, me.KeyName()}] = &me
 			}
-		}
+
+			return nil
+		}, true)
 	}
 
 	// Add menu entries provided by pages
-	for _, p := range pages {
+	//for _, p := range pages {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		for name, me := range p.Menus() {
 			if _, ok := flat[twoD{name, me.KeyName()}]; ok {
 				s.Log.ERROR.Printf("Two or more menu items have the same name/identifier in Menu %q: %q.\nRename or set an unique identifier.\n", name, me.KeyName())
@@ -1484,7 +1496,9 @@ func (s *Site) assembleMenus() {
 			}
 			flat[twoD{name, me.KeyName()}] = me
 		}
-	}
+		return nil
+
+	}, true)
 
 	// Create Children Menus First
 	for _, e := range flat {
@@ -1544,7 +1558,7 @@ func (s *Site) assembleTaxonomies() {
 	for singular, plural := range taxonomies {
 		s.taxonomiesPluralSingular[plural] = singular
 
-		for _, p := range s.Pages {
+		s.PageStore.eachPages(func(p *Page) (error) {
 			vals := p.getParam(plural, !s.Info.preserveTaxonomyNames)
 			weight := p.getParamToLower(plural + "_weight")
 			if weight == nil {
@@ -1554,7 +1568,11 @@ func (s *Site) assembleTaxonomies() {
 				if v, ok := vals.([]string); ok {
 					for _, idx := range v {
 						x := WeightedPage{weight.(int), p}
-						s.Taxonomies[plural].add(s.getTaxonomyKey(idx), x)
+
+						key := s.getTaxonomyKey(idx)
+						s.Taxonomies[plural].add(key, x)
+						s.PageStore.AddWeightedPageIds(plural, key, x)
+
 						if s.Info.preserveTaxonomyNames {
 							// Need to track the original
 							s.taxonomiesOrigKey[fmt.Sprintf("%s-%s", plural, s.PathSpec.MakePathSanitized(idx))] = idx
@@ -1562,7 +1580,12 @@ func (s *Site) assembleTaxonomies() {
 					}
 				} else if v, ok := vals.(string); ok {
 					x := WeightedPage{weight.(int), p}
-					s.Taxonomies[plural].add(s.getTaxonomyKey(v), x)
+
+					key := s.getTaxonomyKey(v)
+					s.Taxonomies[plural].add(key, x)
+
+					s.PageStore.AddWeightedPageIds(plural, key, x)
+
 					if s.Info.preserveTaxonomyNames {
 						// Need to track the original
 						s.taxonomiesOrigKey[fmt.Sprintf("%s-%s", plural, s.PathSpec.MakePathSanitized(v))] = v
@@ -1571,10 +1594,12 @@ func (s *Site) assembleTaxonomies() {
 					s.Log.ERROR.Printf("Invalid %s in %s\n", plural, p.File.Path())
 				}
 			}
-		}
-		for k := range s.Taxonomies[plural] {
-			s.Taxonomies[plural][k].Sort()
-		}
+			return nil
+		}, false)
+		//TODO David Sorting should work
+		//for k := range s.Taxonomies[plural] {
+		//	s.Taxonomies[plural][k].Sort()
+		//}
 	}
 
 	s.Info.Taxonomies = s.Taxonomies
@@ -1621,14 +1646,25 @@ func (s *Site) layouts(p *PageOutput) ([]string, error) {
 func (s *Site) preparePages() error {
 	var errors []error
 
-	for _, p := range s.Pages {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		if err := p.prepareLayouts(); err != nil {
 			errors = append(errors, err)
 		}
 		if err := p.prepareData(s); err != nil {
 			errors = append(errors, err)
 		}
-	}
+
+		if p.params["page_human_id"] != nil {
+			s.PageStore.setPagePermalinkByPageHumanId(p.params["page_human_id"].(string), p.Permalink())
+		}
+
+		if p.params["page_human_id"] != nil {
+			s.PageStore.setLitePageById("lite", p.params["page_human_id"].(string), p)
+			s.PageStore.setLitePageById("id", p.ID, p)
+		}
+
+		return nil
+	}, true)
 
 	if len(errors) != 0 {
 		return fmt.Errorf("Prepare pages failed: %.100q…", errors)
@@ -1814,7 +1850,7 @@ func (s *Site) renderForLayouts(name string, d interface{}, w io.Writer, layouts
 			if templ != nil {
 				templName = templ.Name()
 			}
-			helpers.DistinctErrorLog.Printf("Failed to render %q: %s", templName, r)
+			helpers.DistinctErrorLog.Printf("Failed to render %q %q: %s", name, templName, r, " ", string(debug.Stack()))
 			// TOD(bep) we really need to fix this. Also see below.
 			if !s.running() && !testMode {
 				os.Exit(-1)
@@ -1827,6 +1863,7 @@ func (s *Site) renderForLayouts(name string, d interface{}, w io.Writer, layouts
 		return fmt.Errorf("[%s] Unable to locate layout for %q: %s\n", s.Language.Lang, name, layouts)
 	}
 
+	//start_p := time.Now()
 	if err = templ.Execute(w, d); err != nil {
 		// Behavior here should be dependent on if running in server or watch mode.
 		if p, ok := d.(*PageOutput); ok {
@@ -1845,6 +1882,11 @@ func (s *Site) renderForLayouts(name string, d interface{}, w io.Writer, layouts
 			return
 		}
 	}
+
+	//if time.Now().Sub(start_p).Seconds() > 0 {
+	//	elapsed := time.Since(start_p)
+	//	fmt.Println("template render time",  elapsed, " ", MyCaller())
+	//}
 
 	return
 }
@@ -1867,6 +1909,8 @@ func (s *Site) publish(statCounter *uint64, path string, r io.Reader) (err error
 }
 
 func getGoMaxProcs() int {
+	//return 1
+
 	if gmp := os.Getenv("GOMAXPROCS"); gmp != "" {
 		if p, err := strconv.Atoi(gmp); err != nil {
 			return p
@@ -1888,7 +1932,7 @@ func (s *Site) newNodePage(typ string, sections ...string) *Page {
 		s:               s}
 
 	p.outputFormats = p.s.outputFormats[p.Kind]
-
+	p.ID = generatePageId(typ, sections...)
 	return p
 
 }
@@ -1935,4 +1979,174 @@ func (s *Site) newTaxonomyTermsPage(plural string) *Page {
 	p := s.newNodePage(KindTaxonomyTerm, plural)
 	p.title = s.titleFunc(plural)
 	return p
+}
+
+func (siteInfo *SiteInfo) GetPageByIdByString(pageId string) *Page {
+	return siteInfo.s.PageStore.getPageById(PageId(pageId))
+}
+
+func (siteInfo *SiteInfo) GetPagesByIdByString(stringPageIds []string) Pages {
+
+	var pageIds = make(PageIds, 0)
+
+	for _, x := range stringPageIds {
+		pageIds = append(pageIds, PageId(x))
+	}
+
+	return siteInfo.s.PageStore.getPagesById(pageIds)
+}
+
+func (siteInfo *SiteInfo) GetPageById(pageId PageId) *Page {
+	return siteInfo.s.PageStore.getPageById(PageId(pageId))
+}
+
+func (siteInfo *SiteInfo) GetPagesById(pageIds []PageId) Pages {
+	return siteInfo.s.PageStore.getPagesById(pageIds)
+}
+
+func (siteInfo *SiteInfo) RegularPageIds() PageIds {
+	return siteInfo.s.PageStore.getPageIds(bson.M{"kind": "page"}, []string{"-params.publishdate"})
+}
+
+func (siteInfo *SiteInfo) AllPageIds() PageIds {
+	return siteInfo.s.PageStore.getPageIds(bson.M{}, []string{"-params.title"})
+}
+
+func (siteInfo *SiteInfo) RegularPageIdsBySection(section string, sortField string) PageIds {
+	return siteInfo.s.PageStore.getPageIds(bson.M{"kind": "page", "sections.0": section}, []string{sortField})
+}
+
+func (siteInfo *SiteInfo) GetTaxonomiesByCount(plural string) []WeightedPagePipe {
+	return siteInfo.s.PageStore.taxonomyTermsByCount(plural)
+}
+
+func (siteInfo *SiteInfo) GetTaxonomiesWithParamByCount(plural string, key string, value interface{}) []WeightedPagePipe {
+	paramKey := "params." + key
+	return siteInfo.s.PageStore.taxonomyTermsWithBsonMByCount(bson.M{"plural": plural, paramKey: value})
+}
+
+func (siteInfo *SiteInfo) GetTaxonomiesWithParamValueByCount(plural string, key string, value interface{}) []WeightedPagePipe {
+	paramKey := "params." + key
+	values := make([]interface{}, 0)
+	values = append(values, value)
+	return siteInfo.s.PageStore.taxonomyTermsWithBsonMByCount(bson.M{"plural": plural, paramKey: bson.M{"$in": values}})
+}
+
+func (siteInfo *SiteInfo) RegularPagesByParams(key string, value interface{}) PageIds {
+	paramKey := "params." + key
+	return siteInfo.s.PageStore.getPageIds(bson.M{"kind": "page", paramKey: value}, []string{"+params.title"})
+}
+
+type SearchTerm struct {
+	ID    string
+	Label string
+	Count int
+}
+
+var searchKeysTranslateTable = map[string]string{
+	"brands":  "מותגים",
+	"prices":  "מחירים",
+	"ratings": "דירוגים",
+	"tax":     "מיסים",
+}
+
+func (p *Page) GetSearchesByTerm() map[string][]SearchTerm {
+	plural := p.Data["Plural"].(string)
+	term := p.Data["Term"].(string)
+
+	var cardinality int
+	pluralLabel := make([]string, 0)
+	termArray := make([]string, 0)
+
+	keyPathArray := strings.Split(term, "--")
+	values := make([]interface{}, 0)
+
+	if plural == "searches" {
+		cardinality = len(keyPathArray)
+		pluralLabel = append(pluralLabel, strings.Split(keyPathArray[0], "-")...)
+		termArray = append(termArray, keyPathArray[1:]...)
+		for _, x := range termArray {
+			values = append(values, x)
+		}
+	} else {
+		cardinality = len(keyPathArray) + 1
+		pluralLabel = append(pluralLabel, plural)
+		termArray = append(termArray, term)
+		values = append(values, term)
+	}
+
+	pipes := p.s.PageStore.taxonomyTermsWithBsonMByCount(bson.M{"plural": "searches", "cardinality": cardinality, "searchkeys": bson.M{"$all": values}})
+
+	var searchTermsMap = make(map[string][]SearchTerm)
+
+	for _, pipe := range pipes {
+		splitSearchLabel := strings.Split(pipe.SearchLabel, "-")
+
+		searchLabelDiff, _ := arrayOperations.Difference(splitSearchLabel, pluralLabel)
+		effectiveSearchLabel := searchLabelDiff.Interface().([]string)[0]
+
+		termDiff, _ := arrayOperations.Difference(pipe.SearchKeys, termArray)
+		effectiveKey := termDiff.Interface().([]string)[0]
+
+		translatedKey := searchKeysTranslateTable[effectiveSearchLabel]
+
+		if len(searchTermsMap[translatedKey]) > 0 {
+			searchTermsMap[translatedKey] = append(searchTermsMap[translatedKey], SearchTerm{
+				ID:    pipe.ID,
+				Count: pipe.Count,
+				Label: effectiveKey,
+			})
+		} else {
+			searchTermsMap[translatedKey] = []SearchTerm{{
+				ID:    pipe.ID,
+				Count: pipe.Count,
+				Label: effectiveKey,
+			}}[:]
+		}
+	}
+
+	return searchTermsMap
+}
+
+func (siteInfo *SiteInfo) GetHomePage() *Page {
+	return siteInfo.s.PageStore.getHomePage()
+}
+
+func (siteInfo *SiteInfo) GetPageByPageHumanId(humanId string) *Page {
+	page := siteInfo.s.PageStore.getPageByHumanId(humanId)
+	return page
+}
+
+func (siteInfo *SiteInfo) GetLitePageByPageHumanId(humanId string) *LitePage {
+	litePage := siteInfo.s.PageStore.getLitePageByHumanId(humanId)
+	return litePage
+}
+
+func (siteInfo *SiteInfo) GetLitePageByPageId(id PageId)  *LitePage {
+	return siteInfo.s.PageStore.getLitePageById(string(id))
+}
+
+func (siteInfo *SiteInfo) GetPagesByPageHumanIds(humanIds []interface{}) Pages {
+
+	convertedHumanIds := make([]string, 0)
+
+	for _, v := range humanIds {
+		convertedHumanIds = append(convertedHumanIds, v.(string))
+	}
+	return siteInfo.s.PageStore.getPagesByHumanIds(convertedHumanIds)
+
+}
+
+func (siteInfo *SiteInfo) GetPermalinkByPageHumanId(humanId string) string {
+	return siteInfo.s.PageStore.getPagePermalinkByPageHumanId(humanId)
+}
+
+func (siteInfo *SiteInfo) StartMongoDebug() string {
+	siteInfo.s.PageStore.startDebug()
+	return "start debug"
+}
+
+func (siteInfo *SiteInfo) StopMongoDebug() string {
+	siteInfo.s.PageStore.stoptDebug()
+	return "end debug"
 }

@@ -48,7 +48,6 @@ import (
 	"github.com/gohugoio/hugo/compare"
 	"github.com/gohugoio/hugo/source"
 	"github.com/spf13/cast"
-	"github.com/globalsign/mgo/bson"
 )
 
 var (
@@ -91,14 +90,14 @@ const (
 )
 
 type PageModel struct {
-	ID    bson.ObjectId `bson:"_id,omitempty"`
-	Kind  string
+	ID   string `bson:"_id,omitempty"`
+	Kind string
 
 	PageIds PageIds
 
 	Resources         resource.Resources
 	ResourcesMetadata []map[string]interface{}
-	TranslationsIds      PageIds
+	TranslationsIds   PageIds
 	TranslationKey    string
 	Params            map[string]interface{}
 
@@ -129,6 +128,8 @@ type PageModel struct {
 
 	Layout string
 
+	FileName string
+
 	// For npn-renderable pages (see IsRenderable), the content itself
 	// is used as template and the template name is stored here.
 	SelfLayout string
@@ -146,7 +147,8 @@ type PageModel struct {
 	// whether the content is in a CJK language.
 	IsCJKLanguage bool
 
-	ShortcodeState *shortcodeHandler
+	ShortcodeState      *shortcodeHandler
+	ShortCodeOrderedMap orderedMapMongo
 
 	// the content stripped for HTML
 	Plain      string // TODO should be []byte `bson:"-"`
@@ -175,17 +177,17 @@ type PageModel struct {
 	Sections []string
 
 	// Will only be set for sections and regular pages.
-	Parent *Page
-	ParentId PageId
+	Parent   *Page
+	ParentId PageId `bson:"parentid,omitempty"`
 
 	// When we create paginator pages, we create a copy of the original,
 	// but keep track of it here.
-	OrigOnCopy *Page
+	OrigOnCopy   *Page
 	OrigOnCopyId PageId
 
 	// Will only be set for section pages and the home page.
-	SubSections Pages
-	SubSectionsIds PageIds
+	SubSections    Pages
+	SubSectionsIds []string
 
 	Title       string
 	Description string
@@ -195,7 +197,7 @@ type PageModel struct {
 	PageDates pagemeta.PageDates
 
 	Sitemap        Sitemap
-	UrlPath pagemeta.URLPath
+	UrlPath        pagemeta.URLPath
 	FrontMatterURL string
 
 	PermaLink    string
@@ -209,8 +211,6 @@ type PageModel struct {
 
 	LayoutDescriptor output.LayoutDescriptor
 
-	//scratch *Scratch `bson:"-"`
-
 	Lang string
 
 	OutputFormats output.Formats
@@ -219,7 +219,8 @@ type PageModel struct {
 }
 
 type Page struct {
-	ID bson.ObjectId `bson:"_id,omitempty"`
+	ID string `bson:"_id,omitempty"`
+
 	*pageInit        `bson:"-"`
 	*pageContentInit `bson:"-"`
 
@@ -239,7 +240,8 @@ type Page struct {
 	// This collection will be nil for regular pages.
 	Pages Pages
 
-	PageIds PageIds
+	PageIds      PageIds
+	PageIdsCount int
 
 	// Since Hugo 0.32, a Page can have resources such as images and CSS associated
 	// with itself. The resource will typically be placed relative to the Page,
@@ -253,7 +255,7 @@ type Page struct {
 
 	// translations will contain references to this page in other language
 	// if available.
-	translations Pages `bson:"-"`
+	translations    Pages `bson:"-"`
 	translationsIds PageIds
 
 	// A key that maps to translation(s) of this page. This value is fetched
@@ -320,7 +322,8 @@ type Page struct {
 	// menus
 	pageMenus PageMenus `bson:"-"`
 
-	Source `bson:"-"`
+	Source         `bson:"-"`
+	SourceFileName string
 
 	Position
 
@@ -339,17 +342,18 @@ type Page struct {
 	sections []string `bson:"-"`
 
 	// Will only be set for sections and regular pages.
-	parent *Page `bson:"-"`
+	parent   *Page `bson:"-"`
 	ParentId PageId
 
 	// When we create paginator pages, we create a copy of the original,
 	// but keep track of it here.
-	origOnCopy *Page `bson:"-"`
+	origOnCopy   *Page `bson:"-"`
 	origOnCopyId PageId
 
 	// Will only be set for section pages and the home page.
-	subSections Pages `bson:"-"`
-	SubSectionsIds PageIds
+	subSections         Pages `bson:"-"`
+	SubSectionsIds      []string
+	SubSectionsIdsCount int
 
 	s *Site `bson:"-"`
 
@@ -364,9 +368,9 @@ type Page struct {
 
 	pagemeta.PageDates `bson:"-"`
 
-	Sitemap        Sitemap
-	pagemeta.URLPath      `bson:"-"`
-	frontMatterURL string `bson:"-"`
+	Sitemap          Sitemap
+	pagemeta.URLPath `bson:"-"`
+	frontMatterURL   string `bson:"-"`
 
 	permalink    string `bson:"-"`
 	relPermalink string `bson:"-"`
@@ -402,6 +406,7 @@ type Page struct {
 	mainPageOutput *PageOutput `bson:"-"`
 
 	targetPathDescriptorPrototype *targetPathDescriptor `bson:"-"`
+	saved                         bool
 }
 
 func stackTrace() string {
@@ -1000,10 +1005,10 @@ func (p *Page) setAutoSummary() error {
 
 func (p *Page) renderContent(content []byte) []byte {
 	return p.s.ContentSpec.RenderBytes(&helpers.RenderingContext{
-		Content:    content, RenderTOC: true, PageFmt: p.determineMarkupType(),
+		Content: content, RenderTOC: true, PageFmt: p.determineMarkupType(),
 		Cfg:        p.Language(),
 		DocumentID: p.UniqueID(), DocumentName: p.Path(),
-		Config:     p.getRenderingConfig()})
+		Config: p.getRenderingConfig()})
 }
 
 func (p *Page) getRenderingConfig() *helpers.BlackFriday {
@@ -1039,23 +1044,29 @@ func (s *Site) newPage(filename string) *Page {
 		nil,
 		bundleNot,
 	)
-	return s.newPageFromFile(fi)
+	page := s.newPageFromFile(fi)
+
+	return page
 }
 
 func (s *Site) newPageFromFile(fi *fileInfo) *Page {
-	return &Page{
+	page := &Page{
 		pageInit:        &pageInit{},
 		pageContentInit: &pageContentInit{},
 		Kind:            kindFromFileInfo(fi),
 		contentType:     "",
 		Source:          Source{File: fi},
 		Keywords:        []string{}, Sitemap: Sitemap{Priority: -1},
-		params:          make(map[string]interface{}),
-		translations:    make(Pages, 0),
-		sections:        sectionsFromFile(fi),
-		Site:            &s.Info,
-		s:               s,
+		params:         make(map[string]interface{}),
+		translations:   make(Pages, 0),
+		sections:       sectionsFromFile(fi),
+		Site:           &s.Info,
+		s:              s,
+		SourceFileName: fi.Filename(),
 	}
+	page.ID = generatePageId(KindPage, getMD5Hash(fi.Filename()))
+
+	return page
 }
 
 func (p *Page) IsRenderable() bool {
@@ -1283,6 +1294,28 @@ func (p *Page) Permalink() string {
 		return ""
 	}
 	return p.permalink
+}
+
+func (p *PageOutput) CanonicalPermalink() string {
+	if p.headless {
+		return ""
+	}
+
+	if p.IsNode() {
+		paginator := p.paginator
+
+		if paginator == nil {
+			return p.permalink
+		}
+
+		if paginator.number > 1 {
+			return string(paginator.URL())
+		} else {
+			return p.permalink
+		}
+	} else {
+		return p.permalink
+	}
 }
 
 // RelPermalink gets a URL to the resource relative to the host.
@@ -1668,6 +1701,25 @@ func (p *Page) getParam(key string, stringToLower bool) interface{} {
 		return v
 	case map[interface{}]interface{}: // YAML
 		return v
+	case []interface{}:
+		vInterfaceArray := v.([]interface{})
+
+		if len(vInterfaceArray) == 0 {
+			return nil
+		}
+
+		first := vInterfaceArray[0]
+
+		switch first.(type) {
+		case string:
+			castStrings := make([]string, 0)
+
+			for _, castItem := range vInterfaceArray {
+				castStrings = append(castStrings, castItem.(string))
+			}
+
+			return castStrings
+		}
 	}
 
 	p.s.Log.ERROR.Printf("GetParam(\"%s\"): Unknown type %s\n", key, reflect.TypeOf(v))
@@ -1979,6 +2031,18 @@ func (p *Page) processShortcodes() error {
 
 }
 
+func (p *Page) processShortcodesPopulateObject() error {
+	p.shortcodeState = newShortcodeHandler(p)
+	tmpContent, err := p.shortcodeState.extractShortcodes(string(p.rawContent), p.withoutContent())
+	if err != nil {
+		return err
+	}
+	p.workContent = []byte(tmpContent)
+
+	return nil
+
+}
+
 func (p *Page) FullFilePath() string {
 	return filepath.Join(p.Dir(), p.LogicalName())
 }
@@ -2003,13 +2067,13 @@ func (p *Page) prepareLayouts() error {
 
 func (p *Page) prepareData(s *Site) error {
 	if p.Kind != KindSection {
-		var pages Pages
+		var pageIds PageIds
 		p.Data = make(map[string]interface{})
 
 		switch p.Kind {
 		case KindPage:
 		case KindHome:
-			pages = s.RegularPages
+			//pages = s.RegularPages
 		case KindTaxonomy:
 			plural := p.sections[0]
 			term := p.sections[1]
@@ -2027,28 +2091,26 @@ func (p *Page) prepareData(s *Site) error {
 			p.Data["Singular"] = singular
 			p.Data["Plural"] = plural
 			p.Data["Term"] = term
-			pages = taxonomy.Pages()
+
+			pageIds = s.PageStore.getPageIdsByTaxonomyKey(plural, term)
+
+			//pages = taxonomy.Pages()
+
 		case KindTaxonomyTerm:
 			plural := p.sections[0]
 			singular := s.taxonomiesPluralSingular[plural]
 
 			p.Data["Singular"] = singular
 			p.Data["Plural"] = plural
-			p.Data["Terms"] = s.Taxonomies[plural]
+			//p.Data["Terms"] = s.Taxonomies[plural]
 			// keep the following just for legacy reasons
-			p.Data["OrderedIndex"] = p.Data["Terms"]
-			p.Data["Index"] = p.Data["Terms"]
+			//p.Data["OrderedIndex"] = p.Data["Terms"]
+			//p.Data["Index"] = p.Data["Terms"]
 
-			// A list of all KindTaxonomy pages with matching plural
-			for _, p := range s.findPagesByKind(KindTaxonomy) {
-				if p.sections[0] == plural {
-					pages = append(pages, p)
-				}
-			}
+			pageIds = s.PageStore.getPageIdsByTermKey(plural)
 		}
 
-		p.Data["Pages"] = pages
-		p.Pages = pages
+		p.PageIds = pageIds
 	}
 
 	// Now we know enough to set missing dates on home page etc.
@@ -2319,4 +2381,8 @@ func (p *Page) pathOrTitle() string {
 		return p.Path()
 	}
 	return p.title
+}
+
+func (p *Page) AdAds(content string) string{
+	return content
 }

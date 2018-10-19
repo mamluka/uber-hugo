@@ -19,17 +19,16 @@ import (
 	"strings"
 
 	"github.com/gohugoio/hugo/cache"
-	"github.com/gohugoio/hugo/helpers"
 )
 
 // PageCollections contains the page collections for a site.
 type PageCollections struct {
 	// Includes only pages of all types, and only pages in the current language.
-	Pages Pages
+	//Pages Pages
 
 	// Includes all pages in all languages, including the current one.
 	// Includes pages of all types.
-	AllPages Pages
+	//AllPages Pages
 
 	// A convenience cache for the traditional index types, taxonomies, home page etc.
 	// This is for the current language only.
@@ -46,76 +45,9 @@ type PageCollections struct {
 	rawAllPages Pages
 
 	// Includes headless bundles, i.e. bundles that produce no output for its content page.
-	headlessPages Pages
+	//headlessPages Pages
 
 	pageCache *cache.PartitionedLazyCache
-}
-
-func (c *PageCollections) refreshPageCaches() {
-	c.indexPages = c.findPagesByKindNotIn(KindPage, c.Pages)
-	c.RegularPages = c.findPagesByKindIn(KindPage, c.Pages)
-	c.AllRegularPages = c.findPagesByKindIn(KindPage, c.AllPages)
-
-	var s *Site
-
-	if len(c.Pages) > 0 {
-		s = c.Pages[0].s
-	}
-
-	cacheLoader := func(kind string) func() (map[string]interface{}, error) {
-		return func() (map[string]interface{}, error) {
-			cache := make(map[string]interface{})
-			switch kind {
-			case KindPage:
-				// Note that we deliberately use the pages from all sites
-				// in this cache, as we intend to use this in the ref and relref
-				// shortcodes. If the user says "sect/doc1.en.md", he/she knows
-				// what he/she is looking for.
-				for _, pageCollection := range []Pages{c.AllRegularPages, c.headlessPages} {
-					for _, p := range pageCollection {
-						cache[filepath.ToSlash(p.Source.Path())] = p
-
-						if s != nil && p.s == s {
-							// Ref/Relref supports this potentially ambiguous lookup.
-							cache[p.Source.LogicalName()] = p
-
-							translasionBaseName := p.Source.TranslationBaseName()
-							dir := filepath.ToSlash(strings.TrimSuffix(p.Dir(), helpers.FilePathSeparator))
-
-							if translasionBaseName == "index" {
-								_, name := path.Split(dir)
-								cache[name] = p
-								cache[dir] = p
-							} else {
-								// Again, ambigous
-								cache[translasionBaseName] = p
-							}
-
-							// We need a way to get to the current language version.
-							pathWithNoExtensions := path.Join(dir, translasionBaseName)
-							cache[pathWithNoExtensions] = p
-						}
-					}
-
-				}
-			default:
-				for _, p := range c.indexPages {
-					key := path.Join(p.sections...)
-					cache[key] = p
-				}
-			}
-
-			return cache, nil
-		}
-	}
-
-	partitions := make([]cache.Partition, len(allKindsInPages))
-
-	for i, kind := range allKindsInPages {
-		partitions[i] = cache.Partition{Key: kind, Load: cacheLoader(kind)}
-	}
-
-	c.pageCache = cache.NewPartitionedLazyCache(partitions...)
 }
 
 func newPageCollections() *PageCollections {
@@ -171,9 +103,6 @@ func (*PageCollections) findPagesByKindNotIn(kind string, inPages Pages) Pages {
 	return pages
 }
 
-func (c *PageCollections) findPagesByKind(kind string) Pages {
-	return c.findPagesByKindIn(kind, c.Pages)
-}
 
 func (c *PageCollections) addPage(page *Page) {
 	c.rawAllPages = append(c.rawAllPages, page)

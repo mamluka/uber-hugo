@@ -383,62 +383,63 @@ func (h *HugoSites) renderCrossSitesArtifacts() error {
 		sitemapDefault.Filename, h.toSiteInfos(), s.appendThemeTemplates(smLayouts)...)
 }
 
-func (h *HugoSites) assignMissingTranslations() error {
-
-	// This looks heavy, but it should be a small number of nodes by now.
-	allPages := h.findAllPagesByKindNotIn(KindPage)
-	for _, nodeType := range []string{KindHome, KindSection, KindTaxonomy, KindTaxonomyTerm} {
-		nodes := h.findPagesByKindIn(nodeType, allPages)
-
-		// Assign translations
-		for _, t1 := range nodes {
-			for _, t2 := range nodes {
-				if t1.isNewTranslation(t2) {
-					t1.translations = append(t1.translations, t2)
-				}
-			}
-		}
-	}
-
-	// Now we can sort the translations.
-	for _, p := range allPages {
-		if len(p.translations) > 0 {
-			pageBy(languagePageSort).Sort(p.translations)
-		}
-	}
-	return nil
-
-}
+//func (h *HugoSites) assignMissingTranslations() error {
+//
+//	This looks heavy, but it should be a small number of nodes by now.
+//allPages := h.findAllPagesByKindNotIn(KindPage)
+//for _, nodeType := range []string{KindHome, KindSection, KindTaxonomy, KindTaxonomyTerm} {
+//	nodes := h.findPagesByKindIn(nodeType, allPages)
+//
+//	Assign translations
+//for _, t1 := range nodes {
+//	for _, t2 := range nodes {
+//		if t1.isNewTranslation(t2) {
+//			t1.translations = append(t1.translations, t2)
+//		}
+//	}
+//}
+//}
+//
+//Now we can sort the translations.
+//for _, p := range allPages {
+//	if len(p.translations) > 0 {
+//		pageBy(languagePageSort).Sort(p.translations)
+//	}
+//}
+//return nil
+//
+//}
 
 // createMissingPages creates home page, taxonomies etc. that isnt't created as an
 // effect of having a content file.
 func (h *HugoSites) createMissingPages() error {
-	var newPages Pages
+	//var newPages Pages
 
 	for _, s := range h.Sites {
 		if s.isEnabled(KindHome) {
 			// home pages
-			home := s.findPagesByKind(KindHome)
+			home := s.PageStore.findPagesByKind(KindHome)
 			if len(home) > 1 {
 				panic("Too many homes")
 			}
 			if len(home) == 0 {
 				n := s.newHomePage()
-				s.Pages = append(s.Pages, n)
-				newPages = append(newPages, n)
+				//s.Pages = append(s.Pages, n)
+				s.PageStore.AddToAllPages(n)
+				//newPages = append(newPages, n)
 			}
 		}
 
 		// Will create content-less root sections.
 		newSections := s.assembleSections()
-		s.Pages = append(s.Pages, newSections...)
-		newPages = append(newPages, newSections...)
+		s.PageStore.AddToAllPages(newSections...)
+		//newPages = append(newPages, newSections...)
 
 		// taxonomy list and terms pages
 		taxonomies := s.Language.GetStringMapString("taxonomies")
 		if len(taxonomies) > 0 {
-			taxonomyPages := s.findPagesByKind(KindTaxonomy)
-			taxonomyTermsPages := s.findPagesByKind(KindTaxonomyTerm)
+			taxonomyPages := s.PageStore.findPagesByKind(KindTaxonomy)
+			taxonomyTermsPages := s.PageStore.findPagesByKind(KindTaxonomyTerm)
 			for _, plural := range taxonomies {
 				if s.isEnabled(KindTaxonomyTerm) {
 					foundTaxonomyTermsPage := false
@@ -451,8 +452,9 @@ func (h *HugoSites) createMissingPages() error {
 
 					if !foundTaxonomyTermsPage {
 						n := s.newTaxonomyTermsPage(plural)
-						s.Pages = append(s.Pages, n)
-						newPages = append(newPages, n)
+						//s.Pages = append(s.Pages, n)
+						s.PageStore.AddToAllPages(n)
+						//newPages = append(newPages, n)
 					}
 				}
 
@@ -477,8 +479,9 @@ func (h *HugoSites) createMissingPages() error {
 
 						if !foundTaxonomyPage {
 							n := s.newTaxonomyPage(plural, origKey)
-							s.Pages = append(s.Pages, n)
-							newPages = append(newPages, n)
+							//s.Pages = append(s.Pages, n)
+							//newPages = append(newPages, n)
+							s.PageStore.AddToAllPages(n)
 						}
 					}
 				}
@@ -486,23 +489,23 @@ func (h *HugoSites) createMissingPages() error {
 		}
 	}
 
-	if len(newPages) > 0 {
-		// This resorting is unfortunate, but it also needs to be sorted
-		// when sections are created.
-		first := h.Sites[0]
-
-		first.AllPages = append(first.AllPages, newPages...)
-
-		first.AllPages.Sort()
-
-		for _, s := range h.Sites {
-			s.Pages.Sort()
-		}
-
-		for i := 1; i < len(h.Sites); i++ {
-			h.Sites[i].AllPages = first.AllPages
-		}
-	}
+	//if len(newPages) > 0 {
+	//	This resorting is unfortunate, but it also needs to be sorted
+	//	when sections are created.
+	//first := h.Sites[0]
+	//
+	//first.AllPages = append(first.AllPages, newPages...)
+	//
+	//first.AllPages.Sort()
+	//
+	//for _, s := range h.Sites {
+	//	s.Pages.Sort()
+	//}
+	//
+	//for i := 1; i < len(h.Sites); i++ {
+	//	h.Sites[i].AllPages = first.AllPages
+	//}
+	//}
 
 	return nil
 }
@@ -517,7 +520,7 @@ func (h *HugoSites) setupTranslations() {
 	for _, s := range h.Sites {
 
 		//for _, p := range s.rawAllPages {
-		s.pageStore.eachRawPages(func(p *Page)  {
+		s.PageStore.eachRawPages(func(p *Page) {
 			if p.Kind == kindUnknown {
 				p.Kind = p.s.kindFromSections(p.sections)
 			}
@@ -530,55 +533,66 @@ func (h *HugoSites) setupTranslations() {
 			s.updateBuildStats(p)
 			if shouldBuild {
 				if p.headless {
-					s.headlessPages = append(s.headlessPages, p)
+					//s.headlessPages = append(s.headlessPages, p)
+					s.PageStore.AddToAllHeadlessPages(p)
 				} else {
-					s.Pages = append(s.Pages, p)
-					s.pageIds = append(s.pageIds,p.ID)
+					//s.Pages = append(s.Pages, p)
+					//s.pageIds = append(s.pageIds,p.ID)
+  					s.PageStore.AddToAllPages(p)
 				}
 			}
 		})
 		//}
 	}
 
-	allPages := make(Pages, 0)
-
-	for _, s := range h.Sites {
-		allPages = append(allPages, s.Pages...)
-	}
-
-	allPages.Sort()
-
-	for _, s := range h.Sites {
-		s.AllPages = allPages
-	}
+	//allPages := make(Pages, 0)
+	//
+	//for _, s := range h.Sites {
+	//	allPages = append(allPages, s.Pages...)
+	//}
+	//
+	//allPages.Sort()
+	//
+	//for _, s := range h.Sites {
+	//	s.AllPages = allPages
+	//}
 
 	// Pull over the collections from the master site
 	for i := 1; i < len(h.Sites); i++ {
 		h.Sites[i].Data = h.Sites[0].Data
 	}
-
-	if len(h.Sites) > 1 {
-		allTranslations := pagesToTranslationsMap(allPages)
-		assignTranslationsToPages(allTranslations, allPages)
-	}
+	//TODO DAVID make translations work
+	//if len(h.Sites) > 1 {
+	//	allTranslations := pagesToTranslationsMap(allPages)
+	//	assignTranslationsToPages(allTranslations, allPages)
+	//}
 }
 
 func (s *Site) preparePagesForRender(start bool) {
-	for _, p := range s.Pages {
+	s.PageStore.eachPages(func(p *Page)(error) {
 		p.setContentInit(start)
-	}
 
-	for _, p := range s.headlessPages {
+		return nil
+	},true)
+
+	s.PageStore.eachHeadlessPages(func(p *Page) {
 		p.setContentInit(start)
-	}
+	})
 }
 
 // Pages returns all pages for all sites.
-func (h *HugoSites) Pages() Pages {
-	return h.Sites[0].AllPages
-}
+//func (h *HugoSites) Pages() Pages {
+//	return h.Sites[0].AllPages
+//}
 
 func handleShortcodes(p *PageWithoutContent, rawContentCopy []byte) ([]byte, error) {
+
+	if err := p.processShortcodesPopulateObject(); err != nil {
+		p.s.Log.ERROR.Println(err)
+	}
+
+	p.shortcodeState.updateDelta()
+
 	if p.shortcodeState != nil && p.shortcodeState.contentShortcodes.Len() > 0 {
 		p.s.Log.DEBUG.Printf("Replace %d shortcodes in %q", p.shortcodeState.contentShortcodes.Len(), p.BaseFileName())
 		err := p.shortcodeState.executeShortcodesForDelta(p)
@@ -619,13 +633,13 @@ func (h *HugoSites) findPagesByKindIn(kind string, inPages Pages) Pages {
 	return h.Sites[0].findPagesByKindIn(kind, inPages)
 }
 
-func (h *HugoSites) findAllPagesByKind(kind string) Pages {
-	return h.findPagesByKindIn(kind, h.Sites[0].AllPages)
-}
+//func (h *HugoSites) findAllPagesByKind(kind string) Pages {
+//	return h.findPagesByKindIn(kind, h.Sites[0].AllPages)
+//}
 
-func (h *HugoSites) findAllPagesByKindNotIn(kind string) Pages {
-	return h.findPagesByKindNotIn(kind, h.Sites[0].AllPages)
-}
+//func (h *HugoSites) findAllPagesByKindNotIn(kind string) Pages {
+//	return h.findPagesByKindNotIn(kind, h.Sites[0].AllPages)
+//}
 
 func (h *HugoSites) findPagesByShortcode(shortcode string) Pages {
 	var pages Pages

@@ -20,6 +20,12 @@
   revision = "de5bf2ad457846296e2031421a34e2568e304e35"
 
 [[projects]]
+  name = "github.com/adam-hanna/arrayOperations"
+  packages = ["."]
+  revision = "9b263904c31db75ed5ee915ecb256682433bf099"
+  version = "v0.2.5"
+
+[[projects]]
   branch = "master"
   name = "github.com/alecthomas/chroma"
   packages = [
@@ -151,6 +157,21 @@
   revision = "efe0945164a7e582241f37ae8983c075f8f2e870"
 
 [[projects]]
+  name = "github.com/go-redis/redis"
+  packages = [
+    ".",
+    "internal",
+    "internal/consistenthash",
+    "internal/hashtag",
+    "internal/pool",
+    "internal/proto",
+    "internal/singleflight",
+    "internal/util"
+  ]
+  revision = "0f9028adf0837cf93c9705817493e5f6997cf026"
+  version = "v6.11.0"
+
+[[projects]]
   name = "github.com/gobwas/glob"
   packages = [
     ".",
@@ -237,17 +258,6 @@
   version = "v1.7.6"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/mailru/easyjson"
-  packages = [
-    ".",
-    "buffer",
-    "jlexer",
-    "jwriter"
-  ]
-  revision = "8b799c424f57fa123fc63a99d6383bc6e4c02578"
-
-[[projects]]
   name = "github.com/markbates/inflect"
   packages = ["."]
   revision = "a12c3aec81a6a938bf584a4bac567afed9256586"
@@ -294,6 +304,12 @@
   name = "github.com/olekukonko/tablewriter"
   packages = ["."]
   revision = "b8a9be070da40449e501c3c4730a889e42d87a9e"
+
+[[projects]]
+  name = "github.com/patrickmn/go-cache"
+  packages = ["."]
+  revision = "a3647f8e31d79543b2d0f0ae2fe5c379d72cedc0"
+  version = "v2.1.0"
 
 [[projects]]
   name = "github.com/pelletier/go-toml"
@@ -462,16 +478,6 @@
   revision = "2cb43934f0eece38629746959acc633cba083fe4"
 
 [[projects]]
-  name = "gopkg.in/olivere/elastic.v5"
-  packages = [
-    ".",
-    "config",
-    "uritemplates"
-  ]
-  revision = "2562d7254d4655c3bcf34810cdb4ca45e944d53f"
-  version = "v5.0.68"
-
-[[projects]]
   name = "gopkg.in/yaml.v2"
   packages = ["."]
   revision = "5420a8b6744d3b0345ab293f6fcba19c978f1183"
@@ -480,6 +486,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "4c7dba7012e4b195e76ccf3d04545a654acf8268c317a2ea3a3046d996786872"
+  inputs-digest = "3d9131ca4ab781d896921c1c7cd4c9b0377a4b8e7463268596f31131f940b48d"
   solver-name = "gps-cdcl"
   solver-version = 1

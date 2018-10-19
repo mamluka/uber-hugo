@@ -14,11 +14,9 @@
 package commands
 
 import (
-	"path/filepath"
 
-	"github.com/gohugoio/hugo/hugolib"
 	"github.com/spf13/cobra"
-	jww "github.com/spf13/jwalterweatherman"
+	"github.com/gohugoio/hugo/hugolib"
 )
 
 var _ cmder = (*listCmd)(nil)
@@ -65,12 +63,12 @@ List requires a subcommand, e.g. ` + "`hugo list drafts`.",
 					return newSystemError("Error Processing Source Content", err)
 				}
 
-				for _, p := range sites.Pages() {
-					if p.IsDraft() {
-						jww.FEEDBACK.Println(filepath.Join(p.File.Dir(), p.File.LogicalName()))
-					}
-
-				}
+				//for _, p := range sites.Pages() {
+				//	if p.IsDraft() {
+				//		jww.FEEDBACK.Println(filepath.Join(p.File.Dir(), p.File.LogicalName()))
+				//	}
+				//
+				//}
 
 				return nil
 
@@ -101,12 +99,12 @@ posted in the future.`,
 					return newSystemError("Error Processing Source Content", err)
 				}
 
-				for _, p := range sites.Pages() {
-					if p.IsFuture() {
-						jww.FEEDBACK.Println(filepath.Join(p.File.Dir(), p.File.LogicalName()))
-					}
-
-				}
+				//for _, p := range sites.Pages() {
+				//	if p.IsFuture() {
+				//		jww.FEEDBACK.Println(filepath.Join(p.File.Dir(), p.File.LogicalName()))
+				//	}
+				//
+				//}
 
 				return nil
 
@@ -137,12 +135,12 @@ expired.`,
 					return newSystemError("Error Processing Source Content", err)
 				}
 
-				for _, p := range sites.Pages() {
-					if p.IsExpired() {
-						jww.FEEDBACK.Println(filepath.Join(p.File.Dir(), p.File.LogicalName()))
-					}
-
-				}
+				//for _, p := range sites.Pages() {
+				//	if p.IsExpired() {
+				//		jww.FEEDBACK.Println(filepath.Join(p.File.Dir(), p.File.LogicalName()))
+				//	}
+				//
+				//}
 
 				return nil
 

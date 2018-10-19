@@ -110,14 +110,14 @@ func (cc *convertCmd) convertContents(mark rune) error {
 		return err
 	}
 
-	site := h.Sites[0]
+	//site := h.Sites[0]
 
-	site.Log.FEEDBACK.Println("processing", len(site.AllPages), "content files")
-	for _, p := range site.AllPages {
-		if err := cc.convertAndSavePage(p, site, mark); err != nil {
-			return err
-		}
-	}
+	//site.Log.FEEDBACK.Println("processing", 100, "content files")
+	//for _, p := range site.AllPages {
+	//	if err := cc.convertAndSavePage(p, site, mark); err != nil {
+	//		return err
+	//	}
+	//}
 	return nil
 }
 

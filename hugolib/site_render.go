@@ -18,8 +18,8 @@ import (
 	"path"
 	"strings"
 	"sync"
-
 	"github.com/gohugoio/hugo/output"
+	"time"
 )
 
 // renderPages renders pages each corresponding to a markdown file.
@@ -32,7 +32,7 @@ func (s *Site) renderPages(cfg *BuildCfg) error {
 
 	go errorCollator(results, errs)
 
-	numWorkers := getGoMaxProcs() * 4
+	numWorkers := getGoMaxProcs()
 
 	wg := &sync.WaitGroup{}
 
@@ -41,16 +41,17 @@ func (s *Site) renderPages(cfg *BuildCfg) error {
 		go pageRenderer(s, pages, results, wg)
 	}
 
-	if len(s.headlessPages) > 0 {
+	if s.PageStore.countHeadlessPages() > 0 {
 		wg.Add(1)
 		go headlessPagesPublisher(s, wg)
 	}
 
-	for _, page := range s.Pages {
+	s.PageStore.eachPages(func(page *Page) (error) {
 		if cfg.shouldRender(page) {
 			pages <- page
 		}
-	}
+		return nil
+	},false)
 
 	close(pages)
 
@@ -67,11 +68,11 @@ func (s *Site) renderPages(cfg *BuildCfg) error {
 
 func headlessPagesPublisher(s *Site, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for _, page := range s.headlessPages {
+	s.PageStore.eachPages(func(page *Page) (error) {
 		outFormat := page.outputFormats[0] // There is only one
 		if outFormat != s.rc.Format {
 			// Avoid double work.
-			continue
+			return nil
 		}
 		pageOutput, err := newPageOutput(page, false, outFormat)
 		if err == nil {
@@ -82,7 +83,9 @@ func headlessPagesPublisher(s *Site, wg *sync.WaitGroup) {
 		if err != nil {
 			s.Log.ERROR.Printf("Failed to render resources for headless page %q: %s", page, err)
 		}
-	}
+
+		return nil
+	},false)
 }
 
 func pageRenderer(s *Site, pages <-chan *Page, results chan<- error, wg *sync.WaitGroup) {
@@ -163,6 +166,7 @@ func pageRenderer(s *Site, pages <-chan *Page, results chan<- error, wg *sync.Wa
 
 				s.Log.DEBUG.Printf("Render %s to %q with layouts %q", pageOutput.Kind, targetPath, layouts)
 
+				start_p := time.Now()
 				if err := s.renderAndWritePage(&s.PathSpec.ProcessingStats.Pages, "page "+pageOutput.FullFilePath(), targetPath, pageOutput, layouts...); err != nil {
 					results <- err
 				}
@@ -172,6 +176,12 @@ func pageRenderer(s *Site, pages <-chan *Page, results chan<- error, wg *sync.Wa
 						results <- err
 					}
 				}
+
+				if time.Now().Sub(start_p).Seconds() > 0.2 {
+					elapsed := time.Since(start_p)
+					fmt.Println("render page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+				}
+
 			}
 
 		}
@@ -214,9 +224,10 @@ func (s *Site) renderPaginator(p *PageOutput) error {
 
 			pagerNode.paginator = pager
 			if pager.TotalPages() > 0 {
-				first, _ := pager.page(0)
-				pagerNode.Date = first.Date
-				pagerNode.Lastmod = first.Lastmod
+				//TODO David pager node properties need to be set at the end
+				//first, _ := pager.page(0)
+				//pagerNode.Date = first.Date
+				//pagerNode.Lastmod = first.Lastmod
 			}
 
 			pageNumber := i + 1
@@ -229,6 +240,71 @@ func (s *Site) renderPaginator(p *PageOutput) error {
 			}
 
 			if err := s.renderAndWritePage(
+				&s.PathSpec.ProcessingStats.PaginatorPages,
+				pagerNode.title,
+				targetPath, pagerNode, layouts...); err != nil {
+				return err
+			}
+
+		}
+	}
+	return nil
+}
+// renderPaginator must be run after the owning Page has been rendered.
+func (s *Site) renderPaginatorXML(p *PageOutput,layouts ...string) error {
+	if p.paginator != nil {
+		s.Log.DEBUG.Printf("Render paginator for page %q", p.Path())
+		paginatePath := s.Cfg.GetString("paginatePath")
+
+		// write alias for page 1
+		addend := fmt.Sprintf("/%s/%d", paginatePath, 1)
+		target, err := p.createTargetPath(p.outputFormat, false, addend)
+		if err != nil {
+			return err
+		}
+
+		// TODO(bep) do better
+		link := newOutputFormat(p.Page, p.outputFormat).Permalink()
+		if err := s.writeDestAlias(target, link, nil); err != nil {
+			return err
+		}
+
+		pagers := p.paginator.Pagers()
+
+		for i, pager := range pagers {
+			if i == 0 {
+				// already created
+				continue
+			}
+
+			pagerNode, err := p.copy()
+			if err != nil {
+				return err
+			}
+
+			pagerNode.origOnCopy = p.Page
+
+			pagerNode.paginator = pager
+			if pager.TotalPages() > 0 {
+				//TODO David pager node properties need to be set at the end
+				//first, _ := pager.page(0)
+				//pagerNode.Date = first.Date
+				//pagerNode.Lastmod = first.Lastmod
+			}
+
+			pageNumber := i + 1
+			addend := fmt.Sprintf("/%s/%d", paginatePath, pageNumber)
+			targetPath, _ := p.targetPath(addend)
+			//layouts, err := p.layouts()
+			//if len(layouts)>0 {
+			//	layouts, err := p.layouts()
+			//}
+			//
+			//if err != nil {
+			//	return err
+			//}
+
+			if err := s.renderAndWriteXML(
 				&s.PathSpec.ProcessingStats.PaginatorPages,
 				pagerNode.title,
 				targetPath, pagerNode, layouts...); err != nil {
@@ -278,8 +354,8 @@ func (s *Site) render404() error {
 	p := s.newNodePage(kind404)
 
 	p.title = "404 Page not found"
-	p.Data["Pages"] = s.Pages
-	p.Pages = s.Pages
+	//p.Data["Pages"] = s.Pages
+	//p.Pages = s.Pages
 	p.URLPath.URL = "404.html"
 
 	if err := p.initTargetPathDescriptor(); err != nil {
@@ -292,6 +368,7 @@ func (s *Site) render404() error {
 	htmlOut.BaseName = "404"
 
 	pageOutput, err := newPageOutput(p, false, htmlOut)
+	p.mainPageOutput = pageOutput
 	if err != nil {
 		return err
 	}
@@ -312,9 +389,10 @@ func (s *Site) renderSitemap() error {
 	sitemapDefault := parseSitemap(s.Cfg.GetStringMap("sitemap"))
 
 	n := s.newNodePage(kindSitemap)
-
+	outputFormat, _ := newPageOutput(n, false, n.outputFormats[0])
+	n.mainPageOutput = outputFormat
 	// Include all pages (regular, home page, taxonomies etc.)
-	pages := s.Pages
+	//pages := s.Pages
 
 	page := s.newNodePage(kindSitemap)
 	page.URLPath.URL = ""
@@ -325,8 +403,8 @@ func (s *Site) renderSitemap() error {
 	page.Sitemap.Priority = sitemapDefault.Priority
 	page.Sitemap.Filename = sitemapDefault.Filename
 
-	n.Data["Pages"] = pages
-	n.Pages = pages
+	//n.Data["Pages"] = pages
+	//n.Pages = pages
 
 	// TODO(bep) we have several of these
 	if err := page.initTargetPathDescriptor(); err != nil {
@@ -334,7 +412,7 @@ func (s *Site) renderSitemap() error {
 	}
 
 	// TODO(bep) this should be done somewhere else
-	for _, page := range pages {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		if page.Sitemap.ChangeFreq == "" {
 			page.Sitemap.ChangeFreq = sitemapDefault.ChangeFreq
 		}
@@ -346,13 +424,25 @@ func (s *Site) renderSitemap() error {
 		if page.Sitemap.Filename == "" {
 			page.Sitemap.Filename = sitemapDefault.Filename
 		}
-	}
+
+		return nil
+	},true)
 
 	smLayouts := []string{"sitemap.xml", "_default/sitemap.xml", "_internal/_default/sitemap.xml"}
 	addLanguagePrefix := n.Site.IsMultiLingual()
 
-	return s.renderAndWriteXML(&s.PathSpec.ProcessingStats.Sitemaps, "sitemap",
+
+	s.renderAndWriteXML(&s.PathSpec.ProcessingStats.Sitemaps, "sitemap",
 		n.addLangPathPrefixIfFlagSet(page.Sitemap.Filename, addLanguagePrefix), n, s.appendThemeTemplates(smLayouts)...)
+
+	errSitemapNodes := s.renderPaginatorXML(n.mainPageOutput,s.appendThemeTemplates(smLayouts)...)
+
+	smIndexLayouts := []string{"sitemapindex.xml", "_default/sitemapindex.xml", "_internal/_default/sitemapindex.xml"}
+
+	s.renderAndWriteXML(&s.PathSpec.ProcessingStats.Sitemaps, "sitemapindex",
+		sitemapDefault.IndexFilename, n, s.appendThemeTemplates(smIndexLayouts)...)
+
+	return errSitemapNodes
 }
 
 func (s *Site) renderRobotsTXT() error {
@@ -368,8 +458,8 @@ func (s *Site) renderRobotsTXT() error {
 	if err := p.initTargetPathDescriptor(); err != nil {
 		return err
 	}
-	p.Data["Pages"] = s.Pages
-	p.Pages = s.Pages
+	//p.Data["Pages"] = s.Pages
+	//p.Pages = s.Pages
 
 	rLayouts := []string{"robots.txt", "_default/robots.txt", "_internal/_default/robots.txt"}
 
@@ -389,9 +479,9 @@ func (s *Site) renderRobotsTXT() error {
 
 // renderAliases renders shell pages that simply have a redirect in the header.
 func (s *Site) renderAliases() error {
-	for _, p := range s.Pages {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		if len(p.Aliases) == 0 {
-			continue
+			return nil
 		}
 
 		for _, f := range p.outputFormats {
@@ -420,7 +510,8 @@ func (s *Site) renderAliases() error {
 				}
 			}
 		}
-	}
+		return nil
+	},false)
 
 	if s.owner.multilingual.enabled() && !s.owner.IsMultihost() {
 		mainLang := s.owner.multilingual.DefaultLang

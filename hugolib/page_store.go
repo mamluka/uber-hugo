@@ -1,14 +1,24 @@
 package hugolib
 
 import (
-	"time"
-	"sync"
-	"os"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	apex "github.com/apex/log"
 	"github.com/apex/log/handlers/text"
 	"github.com/globalsign/mgo"
-	"fmt"
-	"gopkg.in/mgo.v2/bson"
+	"github.com/globalsign/mgo/bson"
+	"github.com/go-redis/redis"
+	"github.com/patrickmn/go-cache"
+	"html/template"
+	"log"
+	"math/rand"
+	"os"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
 )
 
 type PageStore struct {
@@ -32,9 +42,14 @@ type PageStore struct {
 	// Includes absolute all pages (of all types), including drafts etc.
 	rawAllPages NewPages
 
-	Site *Site
+	Site     *Site
+	SiteInfo *SiteInfo
+
+	cache *cache.Cache
 
 	MongoSession *mgo.Session
+
+	Redis *redis.Client
 
 	SinceTime time.Time
 
@@ -48,10 +63,24 @@ type PageStore struct {
 func (ps *PageStore) initPageStore(site *Site) {
 
 	url := "mongodb://localhost"
+
+	var aLogger *log.Logger
+	f, _ := os.OpenFile("mongo.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+
+	aLogger = log.New(f, "", log.LstdFlags)
+
+	mgo.SetLogger(aLogger)
+	mgo.SetDebug(false)
+
 	ps.MongoSession, _ = mgo.Dial(url)
+	ps.MongoSession.SetSocketTimeout(1 * time.Hour)
+	ps.MongoSession.SetPoolTimeout(1 * time.Hour)
+	ps.MongoSession.SetCursorTimeout(0)
+	ps.MongoSession.SetSyncTimeout(10 * time.Hour)
 
 	ps.SinceTime = time.Now()
 	ps.Site = site
+	ps.SiteInfo = &site.Info
 
 	ps.tempPages = make(NewPages, 0)
 	ps.tempRawPages = make(NewPages, 0)
@@ -60,6 +89,8 @@ func (ps *PageStore) initPageStore(site *Site) {
 
 	ps.updateMutex = &sync.Mutex{}
 
+	ps.cache = cache.New(5*time.Hour, 10*time.Hour)
+
 	pwd, _ := os.Getwd()
 
 	fi, _ := os.Create(pwd + "/tmp/memory.txt")
@@ -67,16 +98,76 @@ func (ps *PageStore) initPageStore(site *Site) {
 	handler := text.New(fi)
 	apex.SetHandler(handler)
 
-	ps.MongoSession.DB("hugo").C("test1").DropCollection()
+	ps.MongoSession.DB("hugo").C("pages").DropCollection()
+	ps.MongoSession.DB("hugo").C("raw_pages").DropCollection()
+	ps.MongoSession.DB("hugo").C("weighted_pages").DropCollection()
+
+	// Index
+	index1 := mgo.Index{
+		Key:        []string{"key"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+	// {"plural": "searches", "cardinality": 2, "searchkeys":
+	index2 := mgo.Index{
+		Key:        []string{"plural", "cardinality", "searchkeys"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+
+	index3 := mgo.Index{
+		Key:        []string{"params.publishdate"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+
+	index4 := mgo.Index{
+		Key:        []string{"params.title"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+
+	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
+	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
+	err3 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index3)
+	err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
+
+	if err != nil || err2 != nil || err3 != nil || err4 != nil {
+		panic(err)
+	}
+
+	ps.Redis = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   12})
+
+	ps.Redis.FlushDB()
 }
 
 type NewPages []*Page
 type NewImmutablePages []Page
 type PageIds []PageId
-type PageId bson.ObjectId
+type PageId string
+
 type UpdatePage struct {
 	DocType string
 	Page    Page
+}
+
+type SectionGrouping struct {
+	pageId          PageId
+	sections        []string
+	Kind            string
+	parentId        PageId
+	childrenPageIds PageIds
+	Params          map[string]interface{}
 }
 
 func (ps *PageStore) AddToAllRawrPages(pages ...*Page) {
@@ -84,28 +175,332 @@ func (ps *PageStore) AddToAllRawrPages(pages ...*Page) {
 	var dataSlice = pages
 	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
 	for i, p := range dataSlice {
-		interfaceSlice[i] = ps.pageToPageModel(p)
+		pageModel := ps.pageToPageModel(p)
+		ps.storePageIds(*p)
+		interfaceSlice[i] = pageModel
 	}
 
-	err := ps.MongoSession.DB("hugo").C("test1").Insert(interfaceSlice...)
+	err := ps.MongoSession.DB("hugo").C("raw_pages").Insert(interfaceSlice...)
 
 	if err != nil {
 		fmt.Println(err.Error())
+		panic(err)
 	}
 
 }
 
+func (ps *PageStore) AddToAllPages(pages ...*Page) {
+
+	var dataSlice = pages
+	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
+	for i, p := range dataSlice {
+		pageModel := ps.pageToPageModel(p)
+		ps.storePageIds(*p)
+		interfaceSlice[i] = pageModel
+	}
+
+	if (len(interfaceSlice) == 0) {
+		return
+	}
+
+	err := ps.MongoSession.DB("hugo").C("pages").Insert(interfaceSlice...)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+}
+
+func (ps *PageStore) AddToAllHeadlessPages(pages ...*Page) {
+
+	var dataSlice = pages
+	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
+	for i, p := range dataSlice {
+		pageModel := ps.pageToPageModel(p)
+		ps.storePageIds(*p)
+		interfaceSlice[i] = pageModel
+	}
+
+	err := ps.MongoSession.DB("hugo").C("headless_pages").Insert(interfaceSlice...)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+}
+
+func (ps *PageStore) AddWeightedPageIds(plural, key string, pws ...WeightedPage) {
+	var dataSlice = pws
+	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
+	for i, p := range dataSlice {
+		wp := WeightedPageIds{
+			ID:     fmt.Sprint(plural, "_", key, "_", p.ID),
+			Weight: p.Weight,
+			Key:    key,
+			PageId: PageId(p.ID),
+			Plural: plural,
+			Params: p.params,
+		}
+
+		if plural == "searches" {
+			terms := strings.Split(key, "--")
+			searchKeysArray := terms[1:]
+			wp.SearchKeys = searchKeysArray
+			wp.Cardinality = len(searchKeysArray)
+			wp.SearchLabel = terms[0]
+		}
+
+		interfaceSlice[i] = wp
+
+	}
+
+	err := ps.MongoSession.DB("hugo").C("weighted_pages").Insert(interfaceSlice...)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+}
+
 func (ps *PageStore) eachRawPages(f func(*Page)) {
+	start := time.Now()
+
 	item := PageModel{}
-	items := ps.MongoSession.DB("hugo").C("test1").Find(bson.M{}).Batch(200).Iter()
+	items := ps.MongoSession.DB("hugo").C("raw_pages").Find(bson.M{}).Batch(3000).Iter()
 
 	for items.Next(&item) {
-		fmt.Println("Doing Item ", item.ID.String())
+		//fmt.Println("Doing Item ", item.ID)
+
 		page := ps.pageModelToPage(&item)
+
+		ps.loadPageIds(&page)
+		page.s = ps.Site
+		f(&page)
+
+		updatedPageModel := ps.pageToPageModel(&page)
+		ps.storePageIds(page)
+		ps.updatePage("raw_pages", updatedPageModel)
+
+	}
+
+	elapsed := time.Since(start)
+	fmt.Println(" eachRawPages Took ", elapsed)
+}
+
+func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
+	start := time.Now()
+
+	item := PageModel{}
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Batch(3000).Prefetch(1).Iter()
+
+	total := 0
+
+	for items.Next(&item) {
+		//fmt.Println("Doing Item ", item.ID)
+		page := ps.pageModelToPage(&item)
+		ps.loadPageIds(&page)
+		pageId := item.ID
+
+		//start_p := time.Now()
+		f(&page)
+		//if time.Now().Sub(start_p).Seconds() > 0.5 {
+		//	elapsed := time.Since(start_p)
+		//	fmt.Println("single page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+		//}
+
+		//fmt.Println("Doing page ", total)
+		total++
+
+		if update {
+			updatedPageModel := ps.pageToPageModel(&page)
+			updatedPageModel.ID = pageId
+			ps.storePageIds(page)
+			ps.updatePage("pages", updatedPageModel)
+		}
+	}
+
+	elapsed := time.Since(start)
+	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory())
+}
+
+func (ps *PageStore) countPages() int {
+
+	count, _ := ps.MongoSession.DB("hugo").C("pages").Count()
+
+	return count
+}
+
+func (ps *PageStore) countHeadlessPages() int {
+
+	count, _ := ps.MongoSession.DB("hugo").C("headless_pages").Count()
+
+	return count
+}
+
+func (ps *PageStore) updateField(pageId PageId, assigner func(pageModel *PageModel)) {
+
+	pageModel := PageModel{}
+	ps.MongoSession.DB("hugo").C("pages").FindId(pageId).One(&pageModel)
+	assigner(&pageModel)
+
+	err := ps.MongoSession.DB("hugo").C("pages").UpdateId(pageId, pageModel)
+	//fmt.Println("Update ", pageId)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+}
+
+func (ps *PageStore) savePage(pageId PageId, assigner func(pageModel *PageModel)) {
+
+	pageModel := PageModel{}
+	ps.MongoSession.DB("hugo").C("pages").FindId(pageId).One(&pageModel)
+	assigner(&pageModel)
+
+	err := ps.MongoSession.DB("hugo").C("pages").UpdateId(pageId, pageModel)
+	//fmt.Println("Update ", pageId)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+}
+
+func (ps *PageStore) pageExists(pageId PageId) bool {
+	n, _ := ps.MongoSession.DB("hugo").C("pages").FindId(pageId).Count()
+
+	return n > 0
+}
+
+func (ps *PageStore) eachHeadlessPages(f func(*Page)) {
+	start := time.Now()
+	item := PageModel{}
+	items := ps.MongoSession.DB("hugo").C("headless_pages").Find(bson.M{}).Batch(200).Iter()
+
+	for items.Next(&item) {
+		//fmt.Println("Doing Item ", item.ID)
+		page := ps.pageModelToPage(&item)
+		ps.loadPageIds(&page)
+
 		page.s = ps.Site
 
 		f(&page)
+
+		updatedPageModel := ps.pageToPageModel(&page)
+		ps.storePageIds(page)
+		ps.updatePage("headless_pages", updatedPageModel)
 	}
+
+	elapsed := time.Since(start)
+	fmt.Println(" eachHeadlessPages Took ", elapsed)
+}
+func (ps *PageStore) eachPagesWithHeadless(f func(*Page) (error)) {
+	item := PageModel{}
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Batch(200).Iter()
+
+	for items.Next(&item) {
+		//fmt.Println("Doing Item ", item.ID)
+		page := ps.pageModelToPage(&item)
+		ps.loadPageIds(&page)
+		page.s = ps.Site
+
+		f(&page)
+
+		updatedPageModel := ps.pageToPageModel(&page)
+		ps.storePageIds(page)
+		ps.updatePage("pages", updatedPageModel)
+	}
+}
+
+func (ps *PageStore) getPageIdsByTermKey(plural string) PageIds {
+	item := WeightedPageIds{}
+
+	cache_items, found := ps.cache.Get("getPageIdsByTermKey" + plural)
+
+	if found {
+		return cache_items.([]PageId)
+	}
+
+	items := ps.MongoSession.DB("hugo").C("weighted_pages").Find(bson.M{"plural": plural}).Batch(1000).Iter()
+
+	pageIds := make(PageIds, 0)
+
+	for items.Next(&item) {
+		pageIds = append(pageIds, item.PageId)
+	}
+
+	ps.cache.SetDefault(plural, pageIds)
+
+	return pageIds
+}
+
+func (ps *PageStore) getPageIdsByTaxonomyKey(plural string, term string) PageIds {
+	item := WeightedPageIds{}
+
+	items := ps.MongoSession.DB("hugo").C("weighted_pages").Find(bson.M{"plural": plural, "key": term}).Batch(1000).Iter()
+
+	pageIds := make(PageIds, 0)
+
+	for items.Next(&item) {
+		pageIds = append(pageIds, item.PageId)
+	}
+
+	return pageIds
+}
+
+func (ps *PageStore) storePageIds(page Page) {
+	if len(page.PageIds) > 0 {
+		pageIds := make([]string, 0)
+
+		for _, x := range page.PageIds {
+			pageIds = append(pageIds, string(x))
+		}
+
+		ps.Redis.SAdd(page.ID+"_PageIds", pageIds)
+		//fmt.Println("Written to redis pageIds:",resultPageIds)
+	}
+
+	if len(page.SubSectionsIds) > 0 {
+		ps.Redis.SAdd(page.ID+"_SubSectionsIds", page.SubSectionsIds)
+	}
+}
+
+func (ps *PageStore) storeSubSectionsPageIds(pageId PageId, subSectionsPageIds PageIds) {
+	if len(subSectionsPageIds) > 0 {
+		pageIds := make([]string, 0)
+
+		for _, x := range subSectionsPageIds {
+			pageIds = append(pageIds, string(x))
+		}
+
+		ps.Redis.SAdd(string(pageId)+"_SubSectionsIds", pageIds)
+	}
+}
+
+func (ps *PageStore) loadPageIds(page *Page) {
+
+	//start_p := time.Now()
+	pageIdsResult, _ := ps.Redis.SMembers(page.ID + "_PageIds").Result()
+
+	for _, x := range pageIdsResult {
+		page.PageIds = append(page.PageIds, PageId(x))
+	}
+	page.PageIdsCount = len(page.PageIds)
+
+	//fmt.Println("Found ", len(page.PageIds), " for page ", page.ID)
+	pageSubSectionIdsResult, _ := ps.Redis.SMembers(page.ID + "_SubSectionsIds").Result()
+
+	for _, x := range pageSubSectionIdsResult {
+		page.SubSectionsIds = append(page.SubSectionsIds, x)
+	}
+	page.SubSectionsIdsCount = len(page.SubSectionsIds)
+
+	//elapsed := time.Since(start_p)
+	//fmt.Println("Redis get ids ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+
 }
 
 func (ps *PageStore) pageToPageModel(p *Page) PageModel {
@@ -116,9 +511,24 @@ func (ps *PageStore) pageToPageModel(p *Page) PageModel {
 		mainPageOutput = *p.mainPageOutput
 	}
 
+	//var shortCodeOrderedMap orderedMapMongo
+	//
+	//if p.shortcodeState != nil && p.shortcodeState.shortcodes.Len() > 0 {
+	//
+	//	keys := make([]string,0)
+	//	for _,v := range p.shortcodeState.shortcodes.keys {
+	//		keys = append(keys,v.(string))
+	//	}
+	//	shortCodeOrderedMap = orderedMapMongo{
+	//		Keys: keys,
+	//		M: p.shortcodeState.shortcodes.m,
+	//	}
+	//} else {
+	//	shortCodeOrderedMap = orderedMapMongo{}
+	//}
+
 	return PageModel{
 		Kind:              p.Kind,
-		PageIds:           p.PageIds,
 		Resources:         p.Resources,
 		ResourcesMetadata: p.resourcesMetadata,
 		TranslationsIds:   p.translationsIds,
@@ -146,6 +556,7 @@ func (ps *PageStore) pageToPageModel(p *Page) PageModel {
 		WorkContent:       p.workContent,
 		IsCJKLanguage:     p.isCJKLanguage,
 		ShortcodeState:    p.shortcodeState,
+		//ShortCodeOrderedMap: shortCodeOrderedMap,
 		Plain:             p.plain,
 		PlainWords:        p.plainWords,
 		RenderingConfig:   p.renderingConfig,
@@ -155,7 +566,6 @@ func (ps *PageStore) pageToPageModel(p *Page) PageModel {
 		Sections:          p.sections,
 		ParentId:          p.ParentId,
 		OrigOnCopyId:      p.origOnCopyId,
-		SubSectionsIds:    p.SubSectionsIds,
 		Title:             p.title,
 		Description:       p.Description,
 		Keywords:          p.Keywords,
@@ -173,14 +583,15 @@ func (ps *PageStore) pageToPageModel(p *Page) PageModel {
 		Lang:              p.lang,
 		OutputFormats:     p.outputFormats,
 		MainPageOutput:    mainPageOutput,
+		FileName:          p.SourceFileName,
+		ID:                p.ID,
 	}
 }
 
 func (ps *PageStore) pageModelToPage(p *PageModel) Page {
 
-	return Page{
+	page := Page{
 		Kind:              p.Kind,
-		PageIds:           p.PageIds,
 		Resources:         p.Resources,
 		resourcesMetadata: p.ResourcesMetadata,
 		translationsIds:   p.TranslationsIds,
@@ -217,7 +628,6 @@ func (ps *PageStore) pageModelToPage(p *PageModel) Page {
 		sections:          p.Sections,
 		ParentId:          p.ParentId,
 		origOnCopyId:      p.OrigOnCopyId,
-		SubSectionsIds:    p.SubSectionsIds,
 		title:             p.Title,
 		Description:       p.Description,
 		Keywords:          p.Keywords,
@@ -235,6 +645,489 @@ func (ps *PageStore) pageModelToPage(p *PageModel) Page {
 		lang:              p.Lang,
 		outputFormats:     p.OutputFormats,
 		mainPageOutput:    &p.MainPageOutput,
-
+		ID:                p.ID,
+		SourceFileName:    p.FileName,
+		saved:             true,
 	}
+
+	page.Source = Source{File: newFileInfo(
+		ps.Site.SourceSpec,
+		ps.Site.absContentDir(),
+		p.FileName,
+		nil,
+		bundleNot,
+	)}
+
+	page.s = ps.Site
+	page.Site = ps.SiteInfo
+	page.pageInit = &pageInit{}
+
+	page.shortcodeState = newShortcodeHandler(&page)
+	//page.shortcodeState.shortcodes = &orderedMap{
+	//	m: p.ShortCodeOrderedMap.M,
+	//	keys: p.ShortCodeOrderedMap.Keys,
+	//}
+	page.initTargetPathDescriptor()
+	page.pageContentInit = &pageContentInit{}
+
+	if p.ParentId != "" {
+		page.parent = ps.getPageById(p.ParentId)
+	}
+
+	return page
+}
+
+type ActualPages []Page
+
+func (ps *PageStore) findPagesByKind(kind string) ActualPages {
+	pages := make(ActualPages, 0)
+
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"kind": kind}).Batch(200).Iter()
+	item := PageModel{}
+	for items.Next(&item) {
+		page := ps.pageModelToPage(&item)
+		ps.loadPageIds(&page)
+
+		pages = append(pages, page)
+	}
+
+	return pages
+}
+
+func (ps *PageStore) findFirstPageByKindIn(kind string) Page {
+	return ps.findPagesByKind(kind)[0]
+}
+
+func (ps *PageStore) findSectionsForGrouping() []SectionGrouping {
+	sectionGroupings := make([]SectionGrouping, 1)
+	sectionGroupings = append(sectionGroupings, SectionGrouping{})
+	return sectionGroupings
+}
+
+func (p *Page) toSectionGrouping() *SectionGrouping {
+	return &SectionGrouping{
+		pageId:   PageId(p.ID),
+		sections: p.sections,
+		Kind:     p.Kind,
+		Params:   p.params,
+	}
+}
+
+func (ps *PageStore) updatePage(collection string, pageModel PageModel) {
+	err := ps.MongoSession.DB("hugo").C(collection).UpdateId(pageModel.ID, pageModel)
+
+	if err != nil {
+		fmt.Println(err.Error() + " " + pageModel.ID)
+		panic(err)
+	}
+}
+
+func (ps *PageStore) getPageById(pageId PageId) *Page {
+	pageModel := PageModel{}
+
+	cache_items, found := ps.cache.Get(string(pageId))
+
+	if found {
+		cached_page := cache_items.(Page)
+		return &cached_page
+	}
+
+	err := ps.MongoSession.DB("hugo").C("pages").FindId(pageId).One(&pageModel)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	page := ps.pageModelToPage(&pageModel)
+	ps.loadPageIds(&page)
+
+	if page.Kind != KindPage && page.permalink != "" {
+		ps.cache.SetDefault(string(pageId), page)
+	}
+
+	return &page
+}
+
+func (ps *PageStore) getPagesById(pageIds PageIds) Pages {
+
+	where := bson.M{"_id": bson.M{"$in": pageIds}}
+
+	var results []PageModel
+
+	//start_p := time.Now()
+	err := ps.MongoSession.DB("hugo").C("pages").Find(where).All(&results)
+
+	//elapsed := time.Since(start_p)
+	//fmt.Println("Bulk get pages took ", " ", elapsed, " ", MyCaller())
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	pages := make(Pages, 0)
+
+	for _, pm := range results {
+		pageP := ps.pageModelToPage(&pm)
+		ps.loadPageIds(&pageP)
+		pages = append(pages, &pageP)
+	}
+
+	return pages
+}
+
+func (ps *PageStore) getActualPageById(pageId PageId) Page {
+	pageModel := PageModel{}
+	err := ps.MongoSession.DB("hugo").C("pages").FindId(pageId).One(&pageModel)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	page := ps.pageModelToPage(&pageModel)
+	ps.loadPageIds(&page)
+
+	return page
+}
+
+func (ps *PageStore) getPageIds(bsonMap bson.M, sortFields []string) PageIds {
+
+	pageIds := make(PageIds, 0)
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bsonMap).Sort(sortFields...).Select(bson.M{"_id": 1}).Batch(200).Iter()
+
+	item := PageModel{}
+	for items.Next(&item) {
+		pageIds = append(pageIds, PageId(item.ID))
+	}
+
+	return pageIds
+}
+
+func (ps *PageStore) addPageIds(p *Page) {
+	var pageIds = make(PageIds, 0)
+
+	for i := 1; i <= 4*1000000; i++ {
+		pageIds = append(pageIds, RandomString(40))
+	}
+
+	p.PageIds = pageIds
+}
+
+type WeightedPagePipe struct {
+	Count       int
+	ID          string `bson:"_id"`
+	SearchLabel string
+	SearchKeys  []string
+}
+
+type WeightedPagePipes []WeightedPagePipe
+
+func (ps *PageStore) taxonomyTermsByCount(plural string) []WeightedPagePipe {
+
+	cache_items, found := ps.cache.Get("taxonomyTermsByCount" + plural)
+
+	if found {
+		return cache_items.([]WeightedPagePipe)
+	}
+
+	start := time.Now()
+	pipe := []bson.M{bson.M{"$match": bson.M{"plural": plural}}, bson.M{"$group": bson.M{"_id": "$key", "count": bson.M{"$sum": 1}}}, bson.M{"$sort": bson.M{"count": -1}}}
+
+	items := ps.MongoSession.DB("hugo").C("weighted_pages").Pipe(pipe).Iter()
+	weightedPagePipes := make([]WeightedPagePipe, 0)
+
+	item := WeightedPagePipe{}
+	for items.Next(&item) {
+		weightedPagePipes = append(weightedPagePipes, item)
+	}
+
+	elapsed := time.Since(start)
+	fmt.Println(" term count Took ", elapsed, " ", MyCaller())
+
+	return weightedPagePipes
+}
+
+func (ps *PageStore) taxonomyTermsWithBsonMByCount(bsonM bson.M) []WeightedPagePipe {
+	//start := time.Now()
+	pipe := []bson.M{bson.M{"$match": bsonM}, bson.M{"$group": bson.M{"_id": "$key", "searchlabel": bson.M{"$first": "$searchlabel"}, "searchkeys": bson.M{"$first": "$searchkeys"}, "count": bson.M{"$sum": 1}}}, bson.M{"$sort": bson.M{"count": -1}}}
+
+	items := ps.MongoSession.DB("hugo").C("weighted_pages").Pipe(pipe).Iter()
+	weightedPagePipes := make([]WeightedPagePipe, 0)
+
+	item := WeightedPagePipe{}
+	for items.Next(&item) {
+		weightedPagePipes = append(weightedPagePipes, item)
+	}
+
+	//elapsed := time.Since(start)
+	//fmt.Println(" term count with bson Took ", elapsed, " ", MyCaller())
+
+	return weightedPagePipes
+}
+
+func (ps *PageStore) getHomePage() *Page {
+
+	pageModel := PageModel{}
+	err := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"kind": "home"}).One(&pageModel)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	page := ps.pageModelToPage(&pageModel)
+	ps.loadPageIds(&page)
+
+	return &page
+}
+
+func (ps *PageStore) getPageByHumanId(humanId string) *Page {
+
+	pageModel := PageModel{}
+	err := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"params.page_human_id": humanId}).One(&pageModel)
+
+	if err != nil && err.Error() == "not found" {
+		return nil
+	}
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	page := ps.pageModelToPage(&pageModel)
+	ps.loadPageIds(&page)
+
+	return &page
+}
+
+func (ps *PageStore) getPagesByHumanIds(humanIds []string) Pages {
+
+	var results []PageModel
+	err := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"params.page_human_id": bson.M{"$in": humanIds}}).All(&results)
+
+	if err != nil && err.Error() == "not found" {
+		return nil
+	}
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	pages := make(Pages, 0)
+
+	for _, pm := range results {
+		pageP := ps.pageModelToPage(&pm)
+		ps.loadPageIds(&pageP)
+		pages = append(pages, &pageP)
+	}
+
+	return pages
+}
+
+func (ps *PageStore) setPagePermalinkByPageHumanId(humanId string, permalink string) {
+	ps.cache.SetDefault(humanId+"_permalink", permalink)
+}
+
+type LitePage struct {
+	Permalink        string
+	Title            string
+	Summary          template.HTML
+	Description      string
+	Image            string
+	TotalReviewCount float64
+	StarsClass       string
+	Price            float64
+	Truncated        bool
+	Tags             []string
+	MasterVariation  bool
+}
+
+func (ps *PageStore) setLitePageById(prefix string, id string, page *Page) {
+	litePage := LitePage{
+		Permalink:   page.Permalink(),
+		Title:       page.Title(),
+		Summary:     page.Summary(),
+		Description: page.Description,
+		Truncated:   page.Truncated(),
+	}
+
+	if val, ok := page.params["image"]; ok && val != nil {
+		litePage.Image = val.(string);
+	}
+
+	if val, ok := page.params["total_review_count"]; ok && val != nil {
+		litePage.TotalReviewCount = val.(float64);
+	}
+
+	if val, ok := page.params["stars_class"]; ok && val != nil {
+		litePage.StarsClass = val.(string);
+	}
+
+	if val, ok := page.params["price"]; ok && val != nil {
+		litePage.Price = val.(float64);
+	}
+	if val, ok := page.params["master_variation"]; ok && val != nil {
+		litePage.MasterVariation = val.(bool);
+	}
+
+	if val, ok := page.params["tags"]; ok && val != nil {
+		stringList := make([]string, 0)
+
+		for _, x := range val.([]interface{}) {
+			stringList = append(stringList, x.(string))
+		}
+
+		litePage.Tags = stringList
+	}
+
+	listPageJson, err := json.Marshal(litePage)
+
+	if err != nil {
+		fmt.Println(err)
+		panic(err)
+	}
+
+	ps.Redis.Set(prefix+"_"+id, listPageJson, 24*3600*time.Hour)
+}
+
+func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
+
+	litePageBytes, _ := ps.Redis.Get("lite_" + humanId).Result()
+
+	if len(litePageBytes) == 0 {
+		return nil
+	}
+
+	var litePage LitePage
+	json.Unmarshal([]byte(litePageBytes), &litePage)
+
+	return &litePage
+}
+
+func (ps *PageStore) getLitePageById(humanId string) *LitePage {
+
+	litePageBytes, _ := ps.Redis.Get("id_" + humanId).Result()
+
+	if len(litePageBytes) == 0 {
+		return nil
+	}
+
+	var litePage LitePage
+	json.Unmarshal([]byte(litePageBytes), &litePage)
+
+	return &litePage
+}
+
+func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
+
+	multiKeys := make([]string, 0)
+
+	for _, v := range humanIds {
+		multiKeys = append(multiKeys, "id_"+string(v))
+	}
+
+	litePageArray, _ := ps.Redis.MGet(multiKeys...).Result()
+
+	if len(litePageArray) == 0 {
+		return nil
+	}
+
+	litePages := make([]LitePage, 0)
+
+	for _, v := range litePageArray {
+		var litePage LitePage
+		json.Unmarshal([]byte(v.(string)), &litePage)
+
+		litePages = append(litePages, litePage)
+	}
+
+	return litePages
+}
+
+func (ps *PageStore) getPagePermalinkByPageHumanId(humanId string) string {
+	permalink, found := ps.cache.Get(humanId + "_permalink")
+	if !found {
+		return ""
+	}
+
+	return permalink.(string)
+}
+
+func (ps *PageStore) startDebug() {
+	mgo.SetDebug(true)
+}
+
+func (ps *PageStore) stoptDebug() {
+	mgo.SetDebug(false)
+	mgo.SetDebug(false)
+}
+
+func generatePageId(kind string, parts ...string) string {
+	id := fmt.Sprint(kind, "_", strings.Join(parts, "_"))
+
+	return id
+}
+
+func getMD5Hash(text string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(text))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+func printMemory() string {
+
+	//debug.FreeOSMemory()
+
+	var mem runtime.MemStats
+
+	runtime.ReadMemStats(&mem)
+
+	memory := mem.Alloc / 1024 / 1024
+
+	return fmt.Sprint(memory)
+
+	//f2, _ := os.Create("tmp/mem" + strconv.FormatUint(memory, 10) + ".prof")
+
+	//apex.WithFields(apex.Fields{"memory": memory}).Info("Memory used")
+
+	//if err := pprof.WriteHeapProfile(f2); err != nil {
+	//	log.Fatal("could not start Memory profile: ", err)
+	//}
+	//
+	//f2.Close()
+
+}
+
+func RandomString(n int) PageId {
+	var letter = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letter[rand.Intn(len(letter))]
+	}
+	return PageId(string(b))
+}
+
+func MyCaller() string {
+
+	// we get the callers as uintptrs - but we just need 1
+	fpcs := make([]uintptr, 1)
+
+	// skip 3 levels to get to the caller of whoever called Caller()
+	n := runtime.Callers(3, fpcs)
+	if n == 0 {
+		return "n/a" // proper error her would be better
+	}
+
+	// get the info of the actual function that's in the pointer
+	fun := runtime.FuncForPC(fpcs[0] - 1)
+	if fun == nil {
+		return "n/a"
+	}
+
+	// return its name
+	return fun.Name()
 }

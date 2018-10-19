@@ -275,6 +275,8 @@ func (c *contentHandlers) handlePageContent() contentHandler {
 		// Work on a copy of the raw content from now on.
 		p.createWorkContentCopy()
 
+		//TODO shortcode is missing here
+
 		if err := p.processShortcodes(); err != nil {
 			p.s.Log.ERROR.Println(err)
 		}

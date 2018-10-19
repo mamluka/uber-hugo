@@ -153,3 +153,15 @@
 [[constraint]]
   branch = "master"
   name = "github.com/globalsign/mgo"
+
+[[constraint]]
+  name = "github.com/go-redis/redis"
+  version = "6.11.0"
+
+[[constraint]]
+  name = "github.com/patrickmn/go-cache"
+  version = "2.1.0"
+
+[[constraint]]
+  name = "github.com/adam-hanna/arrayOperations"
+  version = "0.2.5"

@@ -46,6 +46,14 @@ func (p Pages) Len() int {
 	return len(p)
 }
 
+func (p PageIds) Len() int {
+	return len(p)
+}
+
+func (p WeightedPagePipes) Len() int {
+	return len(p)
+}
+
 // Len returns the number of pages in the page group.
 func (psg PagesGroup) Len() int {
 	l := 0
@@ -58,7 +66,11 @@ func (psg PagesGroup) Len() int {
 type pagers []*Pager
 
 var (
-	paginatorEmptyPages      Pages
+	paginatorEmptyPages         Pages
+	paginatorEmptyPageIds       PageIds
+	paginatorEmptyBulkPages     Pages
+	paginatorEmptyBulkLitePages []LitePage
+
 	paginatorEmptyPageGroups PagesGroup
 )
 
@@ -96,6 +108,56 @@ func (p *Pager) Pages() Pages {
 	}
 
 	return paginatorEmptyPages
+}
+
+func (p *Pager) PipePages() WeightedPagePipes {
+	if len(p.paginatedElements) == 0 {
+		return make(WeightedPagePipes, 0)
+	}
+
+	if pages, ok := p.element().(WeightedPagePipes); ok {
+		return pages
+	}
+
+	return make(WeightedPagePipes, 0)
+}
+
+func (p *Pager) PageIds() PageIds {
+	if len(p.paginatedElements) == 0 {
+		return paginatorEmptyPageIds
+	}
+
+	if pages, ok := p.element().(PageIds); ok {
+		return pages
+	}
+
+	return paginatorEmptyPageIds
+}
+
+func (p *Pager) BulkPages(site *SiteInfo) Pages {
+	if len(p.paginatedElements) == 0 {
+		return paginatorEmptyBulkPages
+	}
+
+	if pages, ok := p.element().(PageIds); ok {
+		return site.s.PageStore.getPagesById(pages)
+
+	}
+
+	return paginatorEmptyBulkPages
+}
+
+func (p *Pager) BulkLitePages(site *SiteInfo) []LitePage {
+	if len(p.paginatedElements) == 0 {
+		return paginatorEmptyBulkLitePages
+	}
+
+	if pages, ok := p.element().(PageIds); ok {
+		return site.s.PageStore.getLitePagesById(pages)
+
+	}
+
+	return paginatorEmptyBulkLitePages
 }
 
 // PageGroups return Page groups for this page.
@@ -192,6 +254,33 @@ func (p *paginator) Pagers() pagers {
 	return p.pagers
 }
 
+func (p *paginator) AroundPagers(currentPage int, amount int, maxDisplay int) []pagers {
+
+	totalPages := p.TotalPages()
+
+	firstIndex := math.Max(0, float64(currentPage-amount))
+	lastIndex := math.Min(float64(totalPages-1), float64(currentPage+amount))
+
+	pagers := make([]pagers, 0)
+
+	if currentPage > maxDisplay {
+		firstPager := []*Pager{p.pagers[0]}
+		pagers = append(pagers, firstPager)
+
+		midPagers := p.pagers[int(firstIndex):int(lastIndex)]
+
+		pagers = append(pagers, midPagers)
+
+		lastPager := []*Pager{p.pagers[len(p.pagers)-1]}
+		pagers = append(pagers, lastPager)
+	//} else {
+		end := int32(math.Min(float64(maxDisplay), float64(len(p.pagers))))
+		pagers = append(pagers, p.pagers[0:end])
+	}
+
+	return pagers
+}
+
 // PageSize returns the size of each paginator page.
 func (p *paginator) PageSize() int {
 	return p.size
@@ -212,6 +301,26 @@ func splitPages(pages Pages, size int) []paginatedElement {
 	for low, j := 0, len(pages); low < j; low += size {
 		high := int(math.Min(float64(low+size), float64(len(pages))))
 		split = append(split, pages[low:high])
+	}
+
+	return split
+}
+
+func splitPageIds(pageIds PageIds, size int) []paginatedElement {
+	var split []paginatedElement
+	for low, j := 0, len(pageIds); low < j; low += size {
+		high := int(math.Min(float64(low+size), float64(len(pageIds))))
+		split = append(split, pageIds[low:high])
+	}
+
+	return split
+}
+
+func splitPipes(pipes WeightedPagePipes, size int) []paginatedElement {
+	var split []paginatedElement
+	for low, j := 0, len(pipes); low < j; low += size {
+		high := int(math.Min(float64(low+size), float64(len(pipes))))
+		split = append(split, pipes[low:high])
 	}
 
 	return split
@@ -289,7 +398,7 @@ func (p *PageOutput) Paginator(options ...interface{}) (*Pager, error) {
 		if p.s.owner.IsMultihost() {
 			pathDescriptor.LangPrefix = ""
 		}
-		pagers, err := paginatePages(pathDescriptor, p.Data["Pages"], pagerSize)
+		pagers, err := paginatePages(pathDescriptor, p.PageIds, pagerSize)
 
 		if err != nil {
 			initError = err
@@ -401,12 +510,14 @@ func paginatePages(td targetPathDescriptor, seq interface{}, pagerSize int) (pag
 
 	if groups, ok := seq.(PagesGroup); ok {
 		paginator, _ = newPaginatorFromPageGroups(groups, pagerSize, urlFactory)
+	} else if pipes, ok := seq.([]WeightedPagePipe); ok {
+		paginator, _ = newPaginatorFromPipes(pipes, pagerSize, urlFactory)
+
 	} else {
-		pages, err := toPages(seq)
-		if err != nil {
-			return nil, err
-		}
-		paginator, _ = newPaginatorFromPages(pages, pagerSize, urlFactory)
+		//pages, err := toPages(seq)
+		pages := seq.(PageIds)
+
+		paginator, _ = newPaginatorFromPageIds(pages, pagerSize, urlFactory)
 	}
 
 	pagers := paginator.Pagers()
@@ -493,6 +604,27 @@ func newPaginatorFromPages(pages Pages, size int, urlFactory paginationURLFactor
 	split := splitPages(pages, size)
 
 	return newPaginator(split, len(pages), size, urlFactory)
+}
+
+func newPaginatorFromPageIds(pageIds PageIds, size int, urlFactory paginationURLFactory) (*paginator, error) {
+
+	if size <= 0 {
+		return nil, errors.New("Paginator size must be positive")
+	}
+
+	split := splitPageIds(pageIds, size)
+
+	return newPaginator(split, len(pageIds), size, urlFactory)
+}
+func newPaginatorFromPipes(pipes WeightedPagePipes, size int, urlFactory paginationURLFactory) (*paginator, error) {
+
+	if size <= 0 {
+		return nil, errors.New("Paginator size must be positive")
+	}
+
+	split := splitPipes(pipes, size)
+
+	return newPaginator(split, len(pipes), size, urlFactory)
 }
 
 func newPaginatorFromPageGroups(pageGroups PagesGroup, size int, urlFactory paginationURLFactory) (*paginator, error) {

@@ -185,8 +185,8 @@ func (h *HugoSites) assemble(config *BuildCfg) error {
 	}
 
 	for _, s := range h.Sites {
-		for _, pages := range []Pages{s.Pages, s.headlessPages} {
-			for _, p := range pages {
+		//for _, pages := range []Pages{s.Pages, s.headlessPages} {
+		s.PageStore.eachPagesWithHeadless(func(p *Page)(error) {
 				// May have been set in front matter
 				if len(p.outputFormats) == 0 {
 					p.outputFormats = s.outputFormats[p.Kind]
@@ -204,16 +204,17 @@ func (h *HugoSites) assemble(config *BuildCfg) error {
 					return err
 				}
 
-			}
-		}
+				return nil
+
+		})
 		s.assembleMenus()
-		s.refreshPageCaches()
+		//s.refreshPageCaches()
 		s.setupSitePages()
 	}
 
-	if err := h.assignMissingTranslations(); err != nil {
-		return err
-	}
+	//if err := h.assignMissingTranslations(); err != nil {
+	//	return err
+	//}
 
 	return nil
 

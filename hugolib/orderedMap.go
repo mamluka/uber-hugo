@@ -24,6 +24,11 @@ type orderedMap struct {
 	m    map[interface{}]interface{}
 }
 
+type orderedMapMongo struct {
+	Keys []string
+	M    map[string]string
+}
+
 func newOrderedMap() *orderedMap {
 	return &orderedMap{m: make(map[interface{}]interface{})}
 }
