@@ -1407,6 +1407,8 @@ func (p *Page) prepareForRender() error {
 		s.Log.ERROR.Printf("Failed to handle shortcodes for page %s: %s", p.BaseFileName(), err)
 	}
 
+	p.workContent = workContentCopy
+
 	if p.Markup != "html" {
 
 		// Now we know enough to create a summary of the page and count some words

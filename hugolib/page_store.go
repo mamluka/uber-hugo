@@ -235,8 +235,9 @@ func (ps *PageStore) AddWeightedPageIds(plural, key string, pws ...WeightedPage)
 	var dataSlice = pws
 	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
 	for i, p := range dataSlice {
+		id := fmt.Sprint(plural, "_", key, "_", p.ID)
 		wp := WeightedPageIds{
-			ID:     fmt.Sprint(plural, "_", key, "_", p.ID),
+			ID:     id,
 			Weight: p.Weight,
 			Key:    key,
 			PageId: PageId(p.ID),
