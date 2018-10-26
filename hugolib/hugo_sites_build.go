@@ -207,9 +207,9 @@ func (h *HugoSites) assemble(config *BuildCfg) error {
 				return nil
 
 		})
-		s.assembleMenus()
+		//s.assembleMenus()
 		//s.refreshPageCaches()
-		s.setupSitePages()
+		//s.setupSitePages()
 	}
 
 	//if err := h.assignMissingTranslations(); err != nil {

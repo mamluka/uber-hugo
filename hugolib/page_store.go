@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,7 @@ type PageStore struct {
 
 	cache *cache.Cache
 
+
 	MongoSession *mgo.Session
 
 	Redis *redis.Client
@@ -71,6 +73,7 @@ func (ps *PageStore) initPageStore(site *Site) {
 
 	mgo.SetLogger(aLogger)
 	mgo.SetDebug(false)
+
 
 	ps.MongoSession, _ = mgo.Dial(url)
 	ps.MongoSession.SetSocketTimeout(1 * time.Hour)
@@ -323,7 +326,7 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
 	}
 
 	elapsed := time.Since(start)
-	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory())
+	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(),"Mb")
 }
 
 func (ps *PageStore) countPages() int {
@@ -419,11 +422,11 @@ func (ps *PageStore) eachPagesWithHeadless(f func(*Page) (error)) {
 func (ps *PageStore) getPageIdsByTermKey(plural string) PageIds {
 	item := WeightedPageIds{}
 
-	cache_items, found := ps.cache.Get("getPageIdsByTermKey" + plural)
+	//cache_items, found := ps.cache.Get("getPageIdsByTermKey" + plural)
 
-	if found {
-		return cache_items.([]PageId)
-	}
+	//if found {
+	//	return cache_items.([]PageId)
+	//}
 
 	items := ps.MongoSession.DB("hugo").C("weighted_pages").Find(bson.M{"plural": plural}).Batch(1000).Iter()
 
@@ -433,7 +436,7 @@ func (ps *PageStore) getPageIdsByTermKey(plural string) PageIds {
 		pageIds = append(pageIds, item.PageId)
 	}
 
-	ps.cache.SetDefault(plural, pageIds)
+	//ps.cache.SetDefault(plural, pageIds)
 
 	return pageIds
 }
@@ -726,12 +729,12 @@ func (ps *PageStore) updatePage(collection string, pageModel PageModel) {
 func (ps *PageStore) getPageById(pageId PageId) *Page {
 	pageModel := PageModel{}
 
-	cache_items, found := ps.cache.Get(string(pageId))
+	//cache_items, found := ps.cache.Get(string(pageId))
 
-	if found {
-		cached_page := cache_items.(Page)
-		return &cached_page
-	}
+	//if found {
+	//	cached_page := cache_items.(Page)
+	//	return &cached_page
+	//}
 
 	err := ps.MongoSession.DB("hugo").C("pages").FindId(pageId).One(&pageModel)
 
@@ -743,9 +746,9 @@ func (ps *PageStore) getPageById(pageId PageId) *Page {
 	page := ps.pageModelToPage(&pageModel)
 	ps.loadPageIds(&page)
 
-	if page.Kind != KindPage && page.permalink != "" {
-		ps.cache.SetDefault(string(pageId), page)
-	}
+	//if page.Kind != KindPage && page.permalink != "" {
+		//ps.cache.SetDefault(string(pageId), page)
+	//}
 
 	return &page
 }
@@ -827,11 +830,11 @@ type WeightedPagePipes []WeightedPagePipe
 
 func (ps *PageStore) taxonomyTermsByCount(plural string) []WeightedPagePipe {
 
-	cache_items, found := ps.cache.Get("taxonomyTermsByCount" + plural)
-
-	if found {
-		return cache_items.([]WeightedPagePipe)
-	}
+	//cache_items, found := ps.cache.Get("taxonomyTermsByCount" + plural)
+	//
+	//if found {
+	//	return cache_items.([]WeightedPagePipe)
+	//}
 
 	start := time.Now()
 	pipe := []bson.M{bson.M{"$match": bson.M{"plural": plural}}, bson.M{"$group": bson.M{"_id": "$key", "count": bson.M{"$sum": 1}}}, bson.M{"$sort": bson.M{"count": -1}}}
@@ -1080,7 +1083,7 @@ func getMD5Hash(text string) string {
 }
 func printMemory() string {
 
-	//debug.FreeOSMemory()
+	debug.FreeOSMemory()
 
 	var mem runtime.MemStats
 
