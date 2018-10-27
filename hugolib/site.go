@@ -1570,7 +1570,7 @@ func (s *Site) assembleTaxonomies() {
 						x := WeightedPage{weight.(int), p}
 
 						key := s.getTaxonomyKey(idx)
-						//s.Taxonomies[plural].add(key, x)
+						s.Taxonomies[plural].add(key, x)
 						s.PageStore.AddWeightedPageIds(plural, key, x)
 
 						if s.Info.preserveTaxonomyNames {
@@ -1582,7 +1582,7 @@ func (s *Site) assembleTaxonomies() {
 					x := WeightedPage{weight.(int), p}
 
 					key := s.getTaxonomyKey(v)
-					//s.Taxonomies[plural].add(key, x)
+					s.Taxonomies[plural].add(key, x)
 
 					s.PageStore.AddWeightedPageIds(plural, key, x)
 
