@@ -113,7 +113,7 @@ func (s *siteContentProcessor) process(ctx context.Context) error {
 				s.site.replacePage(p)
 			} else {
 				//s.site.addPage(p)
-				s.site.PageStore.AddToAllRawrPages(p)
+				s.site.PageStore.AddToAllPages(p)
 			}
 		}
 		return nil

@@ -1564,10 +1564,15 @@ func (s *Site) assembleTaxonomies() {
 			if weight == nil {
 				weight = 0
 			}
+
 			if vals != nil {
 				if v, ok := vals.([]string); ok {
 					for _, idx := range v {
-						x := WeightedPage{weight.(int), p}
+						page := Page{
+							ID: p.ID,
+						}
+
+						x := WeightedPage{weight.(int), &page}
 
 						key := s.getTaxonomyKey(idx)
 						s.Taxonomies[plural].add(key, x)
