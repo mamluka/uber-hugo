@@ -281,6 +281,8 @@ func (s *Site) assembleSections() Pages {
 	counter := 0
 	home := s.PageStore.findFirstPageByKindIn(KindHome)
 
+	s.PageStore.printMemoryAndCaller("Before first each in sections")
+
 	s.PageStore.eachPages(func(p *Page) (error) {
 		if p.Kind != KindPage {
 			return nil
@@ -325,6 +327,8 @@ func (s *Site) assembleSections() Pages {
 		return nil
 	},false)
 
+	s.PageStore.printMemoryAndCaller("After first each in sections")
+
 	// Create any missing sections in the tree.
 	// A sub-section needs a content file, but to create a navigational tree,
 	// given a content file in /content/a/b/c/_index.md, we cannot create just
@@ -365,6 +369,8 @@ func (s *Site) assembleSections() Pages {
 
 	var rootPages = inPages.Commit().Root()
 
+	s.PageStore.printMemoryAndCaller("Before root walk")
+
 	rootPages.Walk(func(path []byte, v interface{}) bool {
 		p := v.(*SectionGrouping)
 
@@ -393,6 +399,8 @@ func (s *Site) assembleSections() Pages {
 	if currentSection != nil {
 		currentSection.childrenPageIds = children
 	}
+
+	s.PageStore.printMemoryAndCaller("After first each in sections")
 
 	//sectRootPagesMap := make(map[PageId][]PageId)
 
@@ -430,6 +438,8 @@ func (s *Site) assembleSections() Pages {
 
 	}
 
+	s.PageStore.printMemoryAndCaller("Before second root walk")
+
 	rootPages.Walk(func(path []byte, v interface{}) bool {
 
 		p := v.(*SectionGrouping)
@@ -462,6 +472,8 @@ func (s *Site) assembleSections() Pages {
 
 		return false
 	})
+
+	s.PageStore.printMemoryAndCaller("After second root walk")
 
 	//TODO DAVID this is not needed in normal use
 	//var (

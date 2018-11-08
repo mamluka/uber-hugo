@@ -705,6 +705,22 @@ func (ps *PageStore) findPagesByKind(kind string) ActualPages {
 	return pages
 }
 
+type PageForSections struct {
+	Sections []string
+}
+
+func (ps *PageStore) findPagesByKindForSections(kind string) []PageForSections {
+	pages := make([]PageForSections, 0)
+
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"kind": kind}).Batch(200).Iter()
+	item := PageForSections{}
+	for items.Next(&item) {
+		pages = append(pages, item)
+	}
+
+	return pages
+}
+
 func (ps *PageStore) findFirstPageByKindIn(kind string) Page {
 	return ps.findPagesByKind(kind)[0]
 }
@@ -720,7 +736,7 @@ func (p *Page) toSectionGrouping() *SectionGrouping {
 		pageId:   PageId(p.ID),
 		sections: p.sections,
 		Kind:     p.Kind,
-		Params:   p.params,
+		//Params:   p.params,
 	}
 }
 
