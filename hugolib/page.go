@@ -2087,9 +2087,9 @@ func (p *Page) prepareData(s *Site) error {
 			}
 
 			singular := s.taxonomiesPluralSingular[plural]
-			taxonomy := s.Taxonomies[plural].Get(term)
+			//taxonomy := s.Taxonomies[plural].Get(term)
 
-			p.Data[singular] = taxonomy
+			//p.Data[singular] = taxonomy
 			p.Data["Singular"] = singular
 			p.Data["Plural"] = plural
 			p.Data["Term"] = term

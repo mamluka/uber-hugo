@@ -77,9 +77,9 @@ func (i Taxonomy) Get(key string) WeightedPages {
 // Count the weighted pages for the given key.
 func (i Taxonomy) Count(key string) int { return len(i[key]) }
 
-func (i Taxonomy) add(key string, w WeightedPage) {
+func (i Taxonomy) add(key string) {
 
-	i[key] = WeightedPages{w}
+	i[key] = nil
 }
 
 // TaxonomyArray returns an ordered taxonomy with a non defined order.

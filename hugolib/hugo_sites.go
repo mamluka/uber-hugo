@@ -459,6 +459,7 @@ func (h *HugoSites) createMissingPages() error {
 				}
 
 				if s.isEnabled(KindTaxonomy) {
+					//s.PageStore.EachTaxonomiesKey(plural,func(key string) {
 					for key := range s.Taxonomies[plural] {
 						foundTaxonomyPage := false
 						origKey := key
@@ -482,8 +483,10 @@ func (h *HugoSites) createMissingPages() error {
 							//s.Pages = append(s.Pages, n)
 							//newPages = append(newPages, n)
 							s.PageStore.AddToAllPages(n)
+
 						}
 					}
+					//})
 				}
 			}
 		}
@@ -538,7 +541,7 @@ func (h *HugoSites) setupTranslations() {
 				} else {
 					//s.Pages = append(s.Pages, p)
 					//s.pageIds = append(s.pageIds,p.ID)
-  					s.PageStore.AddToAllPages(p)
+					s.PageStore.AddToAllPages(p)
 				}
 			}
 		})
@@ -569,11 +572,11 @@ func (h *HugoSites) setupTranslations() {
 }
 
 func (s *Site) preparePagesForRender(start bool) {
-	s.PageStore.eachPages(func(p *Page)(error) {
+	s.PageStore.eachPages(func(p *Page) (error) {
 		p.setContentInit(start)
 
 		return nil
-	},true)
+	}, true)
 
 	s.PageStore.eachHeadlessPages(func(p *Page) {
 		p.setContentInit(start)

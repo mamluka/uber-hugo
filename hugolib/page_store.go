@@ -48,7 +48,6 @@ type PageStore struct {
 
 	cache *cache.Cache
 
-
 	MongoSession *mgo.Session
 
 	Redis *redis.Client
@@ -73,7 +72,6 @@ func (ps *PageStore) initPageStore(site *Site) {
 
 	mgo.SetLogger(aLogger)
 	mgo.SetDebug(false)
-
 
 	ps.MongoSession, _ = mgo.Dial(url)
 	ps.MongoSession.SetSocketTimeout(1 * time.Hour)
@@ -268,6 +266,15 @@ func (ps *PageStore) AddWeightedPageIds(plural, key string, pws ...WeightedPage)
 	}
 }
 
+func (ps *PageStore) EachTaxonomiesKey(plural string, f func(key string)) {
+	item := WeightedPageIds{}
+	items := ps.MongoSession.DB("hugo").C("weighted_pages").Find(bson.M{"plural": plural}).Batch(3000).Iter()
+
+	for items.Next(&item) {
+		f(item.Key)
+	}
+}
+
 func (ps *PageStore) eachRawPages(f func(*Page)) {
 	start := time.Now()
 
@@ -326,7 +333,7 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
 	}
 
 	elapsed := time.Since(start)
-	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(),"Mb")
+	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb")
 }
 
 func (ps *PageStore) countPages() int {
@@ -747,7 +754,7 @@ func (ps *PageStore) getPageById(pageId PageId) *Page {
 	ps.loadPageIds(&page)
 
 	//if page.Kind != KindPage && page.permalink != "" {
-		//ps.cache.SetDefault(string(pageId), page)
+	//ps.cache.SetDefault(string(pageId), page)
 	//}
 
 	return &page
@@ -1134,4 +1141,8 @@ func MyCaller() string {
 
 	// return its name
 	return fun.Name()
+}
+
+func (ps *PageStore) printMemoryAndCaller(prefix string) {
+	fmt.Println(prefix+" ", MyCaller(), " ", printMemory(), "Mb")
 }
