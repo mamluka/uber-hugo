@@ -2117,6 +2117,10 @@ func (siteInfo *SiteInfo) GetHomePage() *Page {
 	return siteInfo.s.PageStore.getHomePage()
 }
 
+func (siteInfo *SiteInfo) GetDepartmentsRoot() *Page {
+	return siteInfo.s.PageStore.getPageById(PageId(siteInfo.s.PageStore.getHomePage().SubSectionsIds[0]))
+}
+
 func (siteInfo *SiteInfo) GetPageByPageHumanId(humanId string) *Page {
 	page := siteInfo.s.PageStore.getPageByHumanId(humanId)
 	return page

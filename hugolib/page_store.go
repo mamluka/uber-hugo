@@ -100,10 +100,22 @@ func (ps *PageStore) initPageStore(site *Site) {
 	apex.SetHandler(handler)
 
 	ps.MongoSession.DB("hugo").C("pages").DropCollection()
+	ps.MongoSession.DB("hugo").C("pages_temp").DropCollection()
 	ps.MongoSession.DB("hugo").C("raw_pages").DropCollection()
 	ps.MongoSession.DB("hugo").C("weighted_pages").DropCollection()
 
+	ps.CreateMongoIndex()
+
+	ps.Redis = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		DB:   12})
+
+	ps.Redis.FlushDB()
+}
+
+func (ps *PageStore) CreateMongoIndex() {
 	// Index
+
 	index1 := mgo.Index{
 		Key:        []string{"key"},
 		Unique:     false,
@@ -136,20 +148,30 @@ func (ps *PageStore) initPageStore(site *Site) {
 		Sparse:     false,
 	}
 
-	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
-	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
-	err3 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index3)
-	err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
-
-	if err != nil || err2 != nil || err3 != nil || err4 != nil {
-		panic(err)
+	index5 := mgo.Index{
+		Key:        []string{"pagepath"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
 	}
 
-	ps.Redis = redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   12})
+	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
+	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
 
-	ps.Redis.FlushDB()
+	ps.MongoSession.DB("hugo").C("pages").DropAllIndexes()
+
+	err3 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index3)
+	err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
+	err5 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index5)
+	err6 := ps.MongoSession.DB("hugo").C("pages_temp").EnsureIndex(index3)
+	err7 := ps.MongoSession.DB("hugo").C("pages_temp").EnsureIndex(index4)
+	err8 := ps.MongoSession.DB("hugo").C("pages_temp").EnsureIndex(index5)
+
+	if err != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil || err7 != nil || err8 != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
 }
 
 type NewPages []*Page
@@ -168,7 +190,10 @@ type SectionGrouping struct {
 	Kind            string
 	parentId        PageId
 	childrenPageIds PageIds
-	Params          map[string]interface{}
+	SubSectionsIds  PageIds
+	PageIds         PageIds
+	parent          *SectionGrouping
+	saved           bool
 }
 
 func (ps *PageStore) AddToAllRawrPages(pages ...*Page) {
@@ -205,6 +230,29 @@ func (ps *PageStore) AddToAllPages(pages ...*Page) {
 	}
 
 	err := ps.MongoSession.DB("hugo").C("pages").Insert(interfaceSlice...)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+}
+
+func (ps *PageStore) UpdatePagesWithNewCollection(collectionName string, pages ...*Page) {
+
+	var dataSlice = pages
+	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
+	for i, p := range dataSlice {
+		pageModel := ps.pageToPageModel(p)
+		ps.storePageIds(*p)
+		interfaceSlice[i] = pageModel
+	}
+
+	if (len(interfaceSlice) == 0) {
+		return
+	}
+
+	err := ps.MongoSession.DB("hugo").C(collectionName).Insert(interfaceSlice...)
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -304,7 +352,7 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
 	start := time.Now()
 
 	item := PageModel{}
-	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Batch(3000).Prefetch(1).Iter()
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Sort("+pagepath").Batch(3000).Prefetch(1).Iter()
 
 	total := 0
 
@@ -325,15 +373,32 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
 		total++
 
 		if update {
-			updatedPageModel := ps.pageToPageModel(&page)
-			updatedPageModel.ID = pageId
-			ps.storePageIds(page)
-			ps.updatePage("pages", updatedPageModel)
+			//updatedPageModel := ps.pageToPageModel(&page)
+			//updatedPageModel.ID = pageId
+			//ps.storePageIds(page)
+			//ps.updatePage("pages", updatedPageModel)
+			page.ID = pageId
+			ps.UpdatePagesWithNewCollection("pages_temp", &page)
 		}
 	}
 
+	if update {
+		ps.MongoSession.DB("hugo").C("pages").DropCollection()
+		err := ps.MongoSession.Run(bson.D{{"renameCollection", "hugo.pages_temp"}, {"to", "hugo.pages"}}, nil)
+		//err := ps.MongoSession.DB("hugo").Run(bson.D{{"copyTo": "pages"}}, nil)
+
+		if err != nil {
+			fmt.Println(err.Error())
+			panic(err)
+		}
+
+
+
+		ps.CreateMongoIndex()
+	}
+
 	elapsed := time.Since(start)
-	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb")
+	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
 }
 
 func (ps *PageStore) countPages() int {
@@ -596,6 +661,7 @@ func (ps *PageStore) pageToPageModel(p *Page) PageModel {
 		MainPageOutput:    mainPageOutput,
 		FileName:          p.SourceFileName,
 		ID:                p.ID,
+		PagePath:          p.pagePath,
 	}
 }
 
@@ -659,6 +725,7 @@ func (ps *PageStore) pageModelToPage(p *PageModel) Page {
 		ID:                p.ID,
 		SourceFileName:    p.FileName,
 		saved:             true,
+		pagePath:          p.PagePath,
 	}
 
 	page.Source = Source{File: newFileInfo(
@@ -709,13 +776,19 @@ type PageForSections struct {
 	Sections []string
 }
 
-func (ps *PageStore) findPagesByKindForSections(kind string) []PageForSections {
-	pages := make([]PageForSections, 0)
+func (ps *PageStore) findPagesByKindForSections(kind string) []SectionGrouping {
+	pages := make([]SectionGrouping, 0)
 
 	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"kind": kind}).Batch(200).Iter()
-	item := PageForSections{}
+	item := PageModel{}
 	for items.Next(&item) {
-		pages = append(pages, item)
+		sectionGrouping := SectionGrouping{
+			pageId:   PageId(item.ID),
+			sections: item.Sections,
+			Kind:     item.Kind,
+			parentId: item.ParentId,
+		}
+		pages = append(pages, sectionGrouping)
 	}
 
 	return pages
@@ -736,7 +809,6 @@ func (p *Page) toSectionGrouping() *SectionGrouping {
 		pageId:   PageId(p.ID),
 		sections: p.sections,
 		Kind:     p.Kind,
-		//Params:   p.params,
 	}
 }
 

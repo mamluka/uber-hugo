@@ -15,11 +15,10 @@ package hugolib
 
 import (
 	"fmt"
+	"github.com/gohugoio/hugo/helpers"
+	radix "github.com/hashicorp/go-immutable-radix"
 	"path"
 	"strconv"
-	"github.com/gohugoio/hugo/helpers"
-
-	radix "github.com/hashicorp/go-immutable-radix"
 	"time"
 )
 
@@ -146,6 +145,15 @@ func (p *Page) AllSectionNames() []string {
 	return p.sections
 }
 
+func (p *Page) SectionsCount() int {
+	count := 0
+
+	if (p.sections != nil) {
+		count = len(p.sections)
+	}
+	return count
+}
+
 func (p *Page) AllAboveSectionsPageIds() PageIds {
 	return reverse(p.findAllAboveSectionsRec(p.ParentId))
 }
@@ -160,7 +168,7 @@ func (p *Page) AllSubSectionsPagesPageIds() PageIds {
 		return p.PageIds
 	}
 
-	cache_items, found := p.s.PageStore.cache.Get("AllSubSectionsPagesPageIds" +string(p.ID))
+	cache_items, found := p.s.PageStore.cache.Get("AllSubSectionsPagesPageIds" + string(p.ID))
 
 	if found {
 		return cache_items.(PageIds)
@@ -168,14 +176,14 @@ func (p *Page) AllSubSectionsPagesPageIds() PageIds {
 
 	start_p := time.Now()
 	pageIds := p.findAllSubSectionsPagesPageIdsRec(p.SubSectionsPageIds())
-	pageIds =append(pageIds,p.PageIds...)
+	pageIds = append(pageIds, p.PageIds...)
 
 	if time.Now().Sub(start_p).Seconds() > 0.5 {
 		elapsed := time.Since(start_p)
 		fmt.Println("get all sections page page ids ", " ", p.ID, " ", p.Kind, " ", elapsed, " ", MyCaller())
 	}
 
-	p.s.PageStore.cache.SetDefault("AllSubSectionsPagesPageIds" + string(p.ID), pageIds)
+	p.s.PageStore.cache.SetDefault("AllSubSectionsPagesPageIds"+string(p.ID), pageIds)
 
 	return pageIds
 }
@@ -256,10 +264,10 @@ func (s *Site) assembleSections() Pages {
 	}
 
 	// Maps section kind pages to their path, i.e. "my/section"
-	sectionPages := make(map[string]*Page)
+	sectionPages := make(map[string]*SectionGrouping)
 
 	// The sections with content files will already have been created.
-	sections := s.PageStore.findPagesByKind(KindSection)
+	sections := s.PageStore.findPagesByKindForSections(KindSection)
 
 	for i, sect := range sections {
 		sectPage := &sections[i]
@@ -281,7 +289,7 @@ func (s *Site) assembleSections() Pages {
 	counter := 0
 	home := s.PageStore.findFirstPageByKindIn(KindHome)
 
-	s.PageStore.printMemoryAndCaller("Before first each in sections")
+	//s.PageStore.printMemoryAndCaller("Before first each in sections")
 
 	s.PageStore.eachPages(func(p *Page) (error) {
 		if p.Kind != KindPage {
@@ -295,12 +303,14 @@ func (s *Site) assembleSections() Pages {
 		}
 
 		sectionKey := path.Join(p.sections...)
-		sect, found := sectionPages[sectionKey]
+		_, found := sectionPages[sectionKey]
+
+		var sect *Page
 
 		if !found && len(p.sections) == 1 {
 			// We only create content-file-less sections for the root sections.
 			sect = s.newSectionPage(p.sections[0])
-			sectionPages[sectionKey] = sect
+			sectionPages[sectionKey] = &SectionGrouping{sections: sect.sections}
 			newPages = append(newPages, sect)
 			found = true
 		}
@@ -310,24 +320,26 @@ func (s *Site) assembleSections() Pages {
 			_, rootFound := sectionPages[p.sections[0]]
 			if !rootFound {
 				sect = s.newSectionPage(p.sections[0])
-				sectionPages[p.sections[0]] = sect
+				sectionPages[p.sections[0]] = &SectionGrouping{sections: sect.sections}
 				newPages = append(newPages, sect)
 			}
 		}
 
 		if found {
 			pagePath := path.Join(sectionKey, sectPageKey, strconv.Itoa(counter))
-			inPages.Insert([]byte(pagePath), p.toSectionGrouping())
+			//inPages.Insert([]byte(pagePath), p.toSectionGrouping())
+			p.pagePath = pagePath
 		} else {
+			panic("Found undecided pages")
 			undecided = append(undecided, p.toSectionGrouping())
 		}
 
 		counter++
 
 		return nil
-	},false)
+	}, true)
 
-	s.PageStore.printMemoryAndCaller("After first each in sections")
+	//s.PageStore.printMemoryAndCaller("After first each in sections")
 
 	// Create any missing sections in the tree.
 	// A sub-section needs a content file, but to create a navigational tree,
@@ -337,23 +349,31 @@ func (s *Site) assembleSections() Pages {
 		for i := len(sect.sections); i > 0; i-- {
 			sectionPath := sect.sections[:i]
 			sectionKey := path.Join(sectionPath...)
-			sect, found := sectionPages[sectionKey]
+			_, found := sectionPages[sectionKey]
+			var sect *Page
+
 			if !found {
 				sect = s.newSectionPage(sectionPath[len(sectionPath)-1])
 				sect.sections = sectionPath
-				sectionPages[sectionKey] = sect
+				sectionPages[sectionKey] = &SectionGrouping{sections: sect.sections}
 				newPages = append(newPages, sect)
 			}
 		}
 	}
 
 	for k, sect := range sectionPages {
-		inPages.Insert([]byte(path.Join(k, sectSectKey)), sect.toSectionGrouping())
-		inSections.Insert([]byte(k), sect.toSectionGrouping())
+		pagePath := path.Join(k, sectSectKey)
+		//inPages.Insert([]byte(pagePath), sect)
+
+		s.PageStore.updateField(sect.pageId, func(pageModel *PageModel) {
+			pageModel.PagePath = pagePath
+		})
+
+		inSections.Insert([]byte(k), sect)
 	}
 
 	var (
-		currentSection *SectionGrouping
+		currentSection *Page
 		children       PageIds
 		rootSections   = inSections.Commit().Root()
 	)
@@ -367,113 +387,130 @@ func (s *Site) assembleSections() Pages {
 		inPages.Insert([]byte(pagePath), p)
 	}
 
-	var rootPages = inPages.Commit().Root()
+	//var rootPages = inPages.Commit().Root()
 
-	s.PageStore.printMemoryAndCaller("Before root walk")
+	//s.PageStore.printMemoryAndCaller("Before root walk")
 
-	rootPages.Walk(func(path []byte, v interface{}) bool {
-		p := v.(*SectionGrouping)
+	s.PageStore.eachPages(func(p *Page) (error) {
+
+		//fmt.Println(string(p.pagePath))
 
 		if p.Kind == KindSection {
 			if currentSection != nil {
 				// A new section
-				currentSection.childrenPageIds = children
+				s.PageStore.storePageIds(Page{
+					ID:             currentSection.ID,
+					PageIds:        children,
+				})
+
 			}
 
 			currentSection = p
 			children = make(PageIds, 0)
 
-			return false
+			return nil
 
 		}
 
 		// Regular page
 		if currentSection != nil {
-			p.parentId = currentSection.pageId
+			p.ParentId = PageId(currentSection.ID)
 		}
 
-		children = append(children, p.pageId)
-		return false
-	})
+		children = append(children, PageId(p.ID))
+		return nil
+	}, true)
 
 	if currentSection != nil {
-		currentSection.childrenPageIds = children
+		currentSection.PageIds = children
 	}
 
-	s.PageStore.printMemoryAndCaller("After first each in sections")
+	//s.PageStore.printMemoryAndCaller("After first each in sections")
 
 	//sectRootPagesMap := make(map[PageId][]PageId)
 
 	// Build the sections hierarchy
 	for _, sect := range sectionPages {
 		if len(sect.sections) == 1 {
-			sect.ParentId = PageId(home.ID)
-			sect.parent = &home
+			sect.parentId = PageId(home.ID)
+			sect.parent = &SectionGrouping{pageId: PageId(home.ID)}
 			//sectRootPagesMap[sect.ID] = [sect.ParentId
 		} else {
 			parentSearchKey := path.Join(sect.sections[:len(sect.sections)-1]...)
 
 			_, v, _ := rootSections.LongestPrefix([]byte(parentSearchKey))
 			p := v.(*SectionGrouping)
-			sect.ParentId = p.pageId
+			sect.parentId = p.pageId
 			//sectRootPagesMap[sect.ID] = sect.ParentId
 
 			for _, section := range sectionPages {
-				if PageId(section.ID) == p.pageId {
+				if PageId(section.pageId) == p.pageId {
 					sect.parent = section
 				}
 			}
 		}
 
-		if sect.ParentId != "" {
-			if s.PageStore.pageExists(sect.ParentId) {
-				//s.PageStore.savePage(sect.ParentId, func(pageModel *PageModel) {
-				//	pageModel.SubSectionsIds = append(pageModel.SubSectionsIds, sect.ID)
-				//})
-				s.PageStore.storeSubSectionsPageIds(sect.ParentId,[]PageId{PageId(sect.ID)})
+		if sect.parentId != "" {
+			if s.PageStore.pageExists(sect.parentId) {
+				s.PageStore.storeSubSectionsPageIds(sect.parentId, []PageId{PageId(sect.pageId)})
+
+				s.PageStore.updateField(sect.pageId, func(pageModel *PageModel) {
+					pageModel.ParentId = sect.parentId
+				})
+
 			} else {
-				sect.parent.SubSectionsIds = append(sect.parent.SubSectionsIds, sect.ID)
+				panic("Page doesn't exists in section hierarchy")
+				sect.parent.SubSectionsIds = append(sect.parent.SubSectionsIds, PageId(sect.pageId))
 			}
 		}
 
 	}
 
-	s.PageStore.printMemoryAndCaller("Before second root walk")
+	//s.PageStore.printMemoryAndCaller("Before second root walk")
 
-	rootPages.Walk(func(path []byte, v interface{}) bool {
+	//s.PageStore.eachPages(func(p *Page) (error) {
+	//
+	//	if p.Kind == KindSection {
+	//
+	//		for _, section := range sectionPages {
+	//			if PageId(section.pageId) == p.pageId {
+	//				section.PageIds = p.childrenPageIds
+	//
+	//				//if section.saved {
+	//				s.PageStore.updateField(p.pageId, func(pageModel *PageModel) {
+	//					pageModel.ParentId = section.parentId
+	//				})
+	//
+	//				subSectionIds := make([]string, 0)
+	//
+	//				for _, x := range section.SubSectionsIds {
+	//					subSectionIds = append(subSectionIds, string(x))
+	//				}
+	//
+	//				s.PageStore.storePageIds(Page{
+	//					ID:             string(section.pageId),
+	//					PageIds:        section.PageIds,
+	//					SubSectionsIds: subSectionIds,
+	//				})
+	//				//}
+	//
+	//				return nil
+	//			}
+	//		}
+	//
+	//		return nil
+	//	}
+	//
+	//	s.PageStore.updateField(p.pageId, func(pageModel *PageModel) {
+	//		pageModel.ParentId = p.parentId
+	//	})
+	//
+	//	s.PageStore.storeSubSectionsPageIds(p.pageId, p.childrenPageIds)
+	//
+	//	return nil
+	//},true)
 
-		p := v.(*SectionGrouping)
-
-		if p.Kind == KindSection {
-
-			for _, section := range sectionPages {
-				if PageId(section.ID) == p.pageId {
-					section.PageIds = p.childrenPageIds
-
-					if section.saved {
-						s.PageStore.updateField(p.pageId, func(pageModel *PageModel) {
-							pageModel.ParentId = section.ParentId
-						})
-						s.PageStore.storePageIds(*section)
-					}
-
-					return false
-				}
-			}
-
-			return false
-		}
-
-		s.PageStore.updateField(p.pageId, func(pageModel *PageModel) {
-			pageModel.ParentId = p.parentId
-		})
-
-		s.PageStore.storeSubSectionsPageIds(p.pageId,p.childrenPageIds)
-
-		return false
-	})
-
-	s.PageStore.printMemoryAndCaller("After second root walk")
+	//s.PageStore.printMemoryAndCaller("After second root walk")
 
 	//TODO DAVID this is not needed in normal use
 	//var (

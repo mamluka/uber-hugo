@@ -216,6 +216,8 @@ type PageModel struct {
 	OutputFormats output.Formats
 
 	MainPageOutput PageOutput
+
+	PagePath string
 }
 
 type Page struct {
@@ -407,6 +409,7 @@ type Page struct {
 
 	targetPathDescriptorPrototype *targetPathDescriptor `bson:"-"`
 	saved                         bool
+	pagePath                      string
 }
 
 func stackTrace() string {
@@ -2385,6 +2388,6 @@ func (p *Page) pathOrTitle() string {
 	return p.title
 }
 
-func (p *Page) AdAds(content string) string{
+func (p *Page) AdAds(content string) string {
 	return content
 }
