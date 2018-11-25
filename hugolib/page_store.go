@@ -140,13 +140,13 @@ func (ps *PageStore) CreateMongoIndex() {
 		Sparse:     false,
 	}
 
-	index4 := mgo.Index{
-		Key:        []string{"params.title"},
-		Unique:     false,
-		DropDups:   false,
-		Background: true,
-		Sparse:     false,
-	}
+	//index4 := mgo.Index{
+	//	Key:        []string{"params.title"},
+	//	Unique:     false,
+	//	DropDups:   false,
+	//	Background: true,
+	//	Sparse:     false,
+	//}
 
 	index5 := mgo.Index{
 		Key:        []string{"pagepath"},
@@ -162,13 +162,10 @@ func (ps *PageStore) CreateMongoIndex() {
 	ps.MongoSession.DB("hugo").C("pages").DropAllIndexes()
 
 	err3 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index3)
-	err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
+	//err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
 	err5 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index5)
-	err6 := ps.MongoSession.DB("hugo").C("pages_temp").EnsureIndex(index3)
-	err7 := ps.MongoSession.DB("hugo").C("pages_temp").EnsureIndex(index4)
-	err8 := ps.MongoSession.DB("hugo").C("pages_temp").EnsureIndex(index5)
 
-	if err != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil || err7 != nil || err8 != nil {
+	if err != nil || err2 != nil || err3 != nil || err5 != nil {
 		fmt.Println(err.Error())
 		panic(err)
 	}
@@ -391,8 +388,6 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
 			fmt.Println(err.Error())
 			panic(err)
 		}
-
-
 
 		ps.CreateMongoIndex()
 	}
