@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"time"
 
 	// Use this until errgroup gets ported to context
 	// See https://github.com/golang/go/issues/19781
@@ -99,6 +100,7 @@ func (s *siteContentProcessor) closeInput() {
 }
 
 func (s *siteContentProcessor) process(ctx context.Context) error {
+	start_time := time.Now()
 	g1, ctx := errgroup.WithContext(ctx)
 	g2, ctx := errgroup.WithContext(ctx)
 
@@ -113,7 +115,7 @@ func (s *siteContentProcessor) process(ctx context.Context) error {
 				s.site.replacePage(p)
 			} else {
 				//s.site.addPage(p)
-				s.site.PageStore.AddToAllPages(p)
+				s.site.PageStore.AddToAllPagesWithBuffer(false, p)
 			}
 		}
 		return nil
@@ -183,6 +185,10 @@ func (s *siteContentProcessor) process(ctx context.Context) error {
 	err := g2.Wait()
 
 	close(s.pagesChan)
+
+	s.site.PageStore.AddToAllPagesWithBuffer(true, make([]*Page,0)...)
+
+	fmt.Println("Reading pages to DB took: ", time.Since(start_time))
 
 	if err != nil {
 		return err

@@ -39,12 +39,14 @@ func (s *SiteInfo) Home() (*Page, error) {
 // Parent returns a section's parent section or a page's section.
 // To get a section's subsections, see Page's Sections method.
 func (p *Page) Parent() *Page {
-	return p.parent
+	return p.s.PageStore.getPageById(p.ParentId)
 }
 
 // CurrentSection returns the page's current section or the page itself if home or a section.
 // Note that this will return nil for pages that is not regular, home or section pages.
 func (p *Page) CurrentSection() *Page {
+	panic("Current section is not implemented")
+
 	v := p
 	if v.origOnCopy != nil {
 		v = v.origOnCopy
@@ -361,6 +363,8 @@ func (s *Site) assembleSections() Pages {
 		}
 	}
 
+	start_time := time.Now()
+
 	for k, sect := range sectionPages {
 		pagePath := path.Join(k, sectSectKey)
 		//inPages.Insert([]byte(pagePath), sect)
@@ -371,6 +375,8 @@ func (s *Site) assembleSections() Pages {
 
 		inSections.Insert([]byte(k), sect)
 	}
+
+	fmt.Println("Assigning page path to sections took ", time.Since(start_time))
 
 	var (
 		currentSection *Page
@@ -391,7 +397,7 @@ func (s *Site) assembleSections() Pages {
 
 	//s.PageStore.printMemoryAndCaller("Before root walk")
 
-	s.PageStore.eachPages(func(p *Page) (error) {
+	s.PageStore.eachPagesWithSort(func(p *Page) (error) {
 
 		//fmt.Println(string(p.pagePath))
 
@@ -399,8 +405,8 @@ func (s *Site) assembleSections() Pages {
 			if currentSection != nil {
 				// A new section
 				s.PageStore.storePageIds(Page{
-					ID:             currentSection.ID,
-					PageIds:        children,
+					ID:      currentSection.ID,
+					PageIds: children,
 				})
 
 			}
@@ -425,9 +431,7 @@ func (s *Site) assembleSections() Pages {
 		currentSection.PageIds = children
 	}
 
-	//s.PageStore.printMemoryAndCaller("After first each in sections")
-
-	//sectRootPagesMap := make(map[PageId][]PageId)
+	start_time = time.Now()
 
 	// Build the sections hierarchy
 	for _, sect := range sectionPages {
@@ -466,6 +470,7 @@ func (s *Site) assembleSections() Pages {
 
 	}
 
+	fmt.Println("Building section hierarchy took ", time.Since(start_time))
 	//s.PageStore.printMemoryAndCaller("Before second root walk")
 
 	//s.PageStore.eachPages(func(p *Page) (error) {

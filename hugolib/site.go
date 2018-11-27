@@ -159,6 +159,10 @@ type siteRenderingContext struct {
 func (s *Site) initRenderFormats() {
 	formatSet := make(map[string]bool)
 	formats := output.Formats{}
+
+
+
+
 	s.PageStore.eachPages(func(p *Page) (error) {
 		//for _, p := range s.Pages {
 		for _, f := range p.outputFormats {

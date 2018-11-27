@@ -54,6 +54,8 @@ type PageStore struct {
 
 	SinceTime time.Time
 
+	PagesQueue []*Page
+
 	tempPages       NewPages
 	tempRawPages    NewPages
 	tempAllPages    NewPages
@@ -169,6 +171,8 @@ func (ps *PageStore) CreateMongoIndex() {
 		fmt.Println(err.Error())
 		panic(err)
 	}
+
+	ps.PagesQueue = make([]*Page, 0)
 }
 
 type NewPages []*Page
@@ -210,6 +214,15 @@ func (ps *PageStore) AddToAllRawrPages(pages ...*Page) {
 		panic(err)
 	}
 
+}
+
+func (ps *PageStore) AddToAllPagesWithBuffer(flush bool, pages ...*Page) {
+	ps.PagesQueue = append(ps.PagesQueue, pages...)
+
+	if len(ps.PagesQueue) >= 1000 || flush {
+		ps.AddToAllPages(ps.PagesQueue...)
+		ps.PagesQueue = ps.PagesQueue[:0]
+	}
 }
 
 func (ps *PageStore) AddToAllPages(pages ...*Page) {
@@ -346,6 +359,62 @@ func (ps *PageStore) eachRawPages(f func(*Page)) {
 }
 
 func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
+	start := time.Now()
+
+	item := PageModel{}
+
+	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Batch(500).Iter()
+	total := 0
+
+	for items.Next(&item) {
+		//elapsed := time.Since(start)
+		//if math.Mod(float64(total),1000) == 0 {
+		//	//fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
+		//}
+		page := ps.pageModelToPage(&item)
+		ps.loadPageIds(&page)
+		pageId := item.ID
+
+		//start_p := time.Now()
+		f(&page)
+		//if time.Now().Sub(start_p).Seconds() > 0.5 {
+		//	elapsed := time.Since(start_p)
+		//	fmt.Println("single page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+		//}
+
+		//fmt.Println("Doing page ", total)
+		total++
+
+		if update {
+			//updatedPageModel := ps.pageToPageModel(&page)
+			//updatedPageModel.ID = pageId
+			//ps.storePageIds(page)
+			//ps.updatePage("pages", updatedPageModel)
+			page.ID = pageId
+			ps.UpdatePagesWithNewCollection("pages_temp", &page)
+		}
+	}
+
+
+
+	if update {
+		ps.MongoSession.DB("hugo").C("pages").DropCollection()
+		err := ps.MongoSession.Run(bson.D{{"renameCollection", "hugo.pages_temp"}, {"to", "hugo.pages"}}, nil)
+		//err := ps.MongoSession.DB("hugo").Run(bson.D{{"copyTo": "pages"}}, nil)
+
+		if err != nil {
+			fmt.Println(err.Error())
+			panic(err)
+		}
+
+		ps.CreateMongoIndex()
+	}
+
+	elapsed := time.Since(start)
+	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
+}
+
+func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
 	start := time.Now()
 
 	item := PageModel{}
@@ -743,9 +812,9 @@ func (ps *PageStore) pageModelToPage(p *PageModel) Page {
 	page.initTargetPathDescriptor()
 	page.pageContentInit = &pageContentInit{}
 
-	if p.ParentId != "" {
-		page.parent = ps.getPageById(p.ParentId)
-	}
+	//if p.ParentId != "" {
+	//	page.parent = ps.getPageById(p.ParentId)
+	//}
 
 	return page
 }
