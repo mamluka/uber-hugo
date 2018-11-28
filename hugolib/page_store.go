@@ -106,7 +106,7 @@ func (ps *PageStore) initPageStore(site *Site) {
 	ps.MongoSession.DB("hugo").C("raw_pages").DropCollection()
 	ps.MongoSession.DB("hugo").C("weighted_pages").DropCollection()
 
-	ps.CreateMongoIndex()
+	ps.CreateWeightedPagesIndesx()
 
 	ps.Redis = redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -117,6 +117,33 @@ func (ps *PageStore) initPageStore(site *Site) {
 	ps.PagesQueue = make([]*Page, 0)
 }
 
+func (ps *PageStore) CreateWeightedPagesIndesx() {
+	index1 := mgo.Index{
+		Key:        []string{"key"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+	// {"plural": "searches", "cardinality": 2, "searchkeys":
+	index2 := mgo.Index{
+		Key:        []string{"plural", "cardinality", "searchkeys"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+
+	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
+	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
+
+	ps.MongoSession.DB("hugo").C("pages").DropAllIndexes()
+
+	if err != nil || err2 != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+}
 func (ps *PageStore) CreateMongoIndex() {
 	// Index
 
@@ -152,14 +179,6 @@ func (ps *PageStore) CreateMongoIndex() {
 	//	Sparse:     false,
 	//}
 
-	index5 := mgo.Index{
-		Key:        []string{"pagepath"},
-		Unique:     false,
-		DropDups:   false,
-		Background: true,
-		Sparse:     false,
-	}
-
 	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
 	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
 
@@ -167,9 +186,8 @@ func (ps *PageStore) CreateMongoIndex() {
 
 	err3 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index3)
 	//err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
-	err5 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index5)
 
-	if err != nil || err2 != nil || err3 != nil || err5 != nil {
+	if err != nil || err2 != nil || err3 != nil {
 		fmt.Println(err.Error())
 		panic(err)
 	}
@@ -424,8 +442,6 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 			panic(err)
 		}
 
-
-
 	}
 
 	elapsed := time.Since(start)
@@ -477,8 +493,6 @@ func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
 			fmt.Println(err.Error())
 			panic(err)
 		}
-
-		ps.CreateMongoIndex()
 	}
 
 	elapsed := time.Since(start)
