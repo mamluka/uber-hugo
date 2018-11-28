@@ -160,9 +160,6 @@ func (s *Site) initRenderFormats() {
 	formatSet := make(map[string]bool)
 	formats := output.Formats{}
 
-
-
-
 	s.PageStore.eachPages(func(p *Page) (error) {
 		//for _, p := range s.Pages {
 		for _, f := range p.outputFormats {
@@ -173,7 +170,7 @@ func (s *Site) initRenderFormats() {
 		}
 
 		return nil
-	}, true)
+	}, true, false, false, false)
 	//}
 
 	sort.Sort(formats)
@@ -1392,7 +1389,7 @@ func (s *Site) buildSiteMeta() (err error) {
 		p.setValuesForKind(s)
 
 		return nil
-	}, true)
+	}, true, false, false, false)
 
 	return
 }
@@ -1487,7 +1484,7 @@ func (s *Site) assembleMenus() {
 			}
 
 			return nil
-		}, true)
+		}, true,false,false,false)
 	}
 
 	// Add menu entries provided by pages
@@ -1502,7 +1499,7 @@ func (s *Site) assembleMenus() {
 		}
 		return nil
 
-	}, true)
+	}, true,false,false,false)
 
 	// Create Children Menus First
 	for _, e := range flat {
@@ -1604,7 +1601,7 @@ func (s *Site) assembleTaxonomies() {
 				}
 			}
 			return nil
-		}, false)
+		}, false,false,false,false)
 		//TODO David Sorting should work
 		//for k := range s.Taxonomies[plural] {
 		//	s.Taxonomies[plural][k].Sort()
@@ -1673,7 +1670,7 @@ func (s *Site) preparePages() error {
 		}
 
 		return nil
-	}, true)
+	}, true,false,false,false)
 
 	if len(errors) != 0 {
 		return fmt.Errorf("Prepare pages failed: %.100q…", errors)
@@ -2135,7 +2132,7 @@ func (siteInfo *SiteInfo) GetLitePageByPageHumanId(humanId string) *LitePage {
 	return litePage
 }
 
-func (siteInfo *SiteInfo) GetLitePageByPageId(id PageId)  *LitePage {
+func (siteInfo *SiteInfo) GetLitePageByPageId(id PageId) *LitePage {
 	return siteInfo.s.PageStore.getLitePageById(string(id))
 }
 

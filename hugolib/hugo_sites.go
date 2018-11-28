@@ -576,7 +576,7 @@ func (s *Site) preparePagesForRender(start bool) {
 		p.setContentInit(start)
 
 		return nil
-	}, true)
+	}, true, false, false, false)
 
 	s.PageStore.eachHeadlessPages(func(p *Page) {
 		p.setContentInit(start)

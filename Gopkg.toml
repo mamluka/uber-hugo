@@ -165,3 +165,7 @@
 [[constraint]]
   name = "github.com/adam-hanna/arrayOperations"
   version = "0.2.5"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/golang/snappy"

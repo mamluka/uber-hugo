@@ -15,10 +15,10 @@ package hugolib
 
 import (
 	"fmt"
+	"github.com/gohugoio/hugo/output"
 	"path"
 	"strings"
 	"sync"
-	"github.com/gohugoio/hugo/output"
 	"time"
 )
 
@@ -51,7 +51,7 @@ func (s *Site) renderPages(cfg *BuildCfg) error {
 			pages <- page
 		}
 		return nil
-	},false)
+	}, false, true, false, true)
 
 	close(pages)
 
@@ -85,7 +85,7 @@ func headlessPagesPublisher(s *Site, wg *sync.WaitGroup) {
 		}
 
 		return nil
-	},false)
+	}, false, false, false, false)
 }
 
 func pageRenderer(s *Site, pages <-chan *Page, results chan<- error, wg *sync.WaitGroup) {
@@ -250,8 +250,9 @@ func (s *Site) renderPaginator(p *PageOutput) error {
 	}
 	return nil
 }
+
 // renderPaginator must be run after the owning Page has been rendered.
-func (s *Site) renderPaginatorXML(p *PageOutput,layouts ...string) error {
+func (s *Site) renderPaginatorXML(p *PageOutput, layouts ...string) error {
 	if p.paginator != nil {
 		s.Log.DEBUG.Printf("Render paginator for page %q", p.Path())
 		paginatePath := s.Cfg.GetString("paginatePath")
@@ -426,16 +427,15 @@ func (s *Site) renderSitemap() error {
 		}
 
 		return nil
-	},true)
+	}, true, false, false, false)
 
 	smLayouts := []string{"sitemap.xml", "_default/sitemap.xml", "_internal/_default/sitemap.xml"}
 	addLanguagePrefix := n.Site.IsMultiLingual()
 
-
 	s.renderAndWriteXML(&s.PathSpec.ProcessingStats.Sitemaps, "sitemap",
 		n.addLangPathPrefixIfFlagSet(page.Sitemap.Filename, addLanguagePrefix), n, s.appendThemeTemplates(smLayouts)...)
 
-	errSitemapNodes := s.renderPaginatorXML(n.mainPageOutput,s.appendThemeTemplates(smLayouts)...)
+	errSitemapNodes := s.renderPaginatorXML(n.mainPageOutput, s.appendThemeTemplates(smLayouts)...)
 
 	smIndexLayouts := []string{"sitemapindex.xml", "_default/sitemapindex.xml", "_internal/_default/sitemapindex.xml"}
 
@@ -511,7 +511,7 @@ func (s *Site) renderAliases() error {
 			}
 		}
 		return nil
-	},false)
+	}, false, false, false, false)
 
 	if s.owner.multilingual.enabled() && !s.owner.IsMultihost() {
 		mainLang := s.owner.multilingual.DefaultLang

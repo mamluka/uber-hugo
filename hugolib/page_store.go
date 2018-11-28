@@ -113,6 +113,8 @@ func (ps *PageStore) initPageStore(site *Site) {
 		DB:   12})
 
 	ps.Redis.FlushDB()
+
+	ps.PagesQueue = make([]*Page, 0)
 }
 
 func (ps *PageStore) CreateMongoIndex() {
@@ -172,7 +174,27 @@ func (ps *PageStore) CreateMongoIndex() {
 		panic(err)
 	}
 
-	ps.PagesQueue = make([]*Page, 0)
+}
+
+func (ps *PageStore) CreateSectionsIndex() {
+
+	index5 := mgo.Index{
+		Key:        []string{"pagepath"},
+		Unique:     false,
+		DropDups:   false,
+		Background: true,
+		Sparse:     false,
+	}
+
+	ps.MongoSession.DB("hugo").C("pages").DropAllIndexes()
+
+	err := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index5)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
 }
 
 type NewPages []*Page
@@ -248,13 +270,17 @@ func (ps *PageStore) AddToAllPages(pages ...*Page) {
 
 }
 
-func (ps *PageStore) UpdatePagesWithNewCollection(collectionName string, pages ...*Page) {
+func (ps *PageStore) UpdatePagesWithNewCollection(collectionName string, updatePageIds bool, pages ...*Page) {
 
 	var dataSlice = pages
 	var interfaceSlice []interface{} = make([]interface{}, len(dataSlice))
 	for i, p := range dataSlice {
 		pageModel := ps.pageToPageModel(p)
-		ps.storePageIds(*p)
+
+		if updatePageIds {
+			ps.storePageIds(*p)
+		}
+
 		interfaceSlice[i] = pageModel
 	}
 
@@ -358,56 +384,48 @@ func (ps *PageStore) eachRawPages(f func(*Page)) {
 	fmt.Println(" eachRawPages Took ", elapsed)
 }
 
-func (ps *PageStore) eachPages(f func(*Page) (error), update bool) {
+func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds bool, updatePageIds bool, createMongoIndex bool) {
 	start := time.Now()
 
 	item := PageModel{}
+
+	if createMongoIndex {
+		ps.CreateMongoIndex()
+	}
 
 	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Batch(500).Iter()
 	total := 0
 
 	for items.Next(&item) {
-		//elapsed := time.Since(start)
-		//if math.Mod(float64(total),1000) == 0 {
-		//	//fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
-		//}
 		page := ps.pageModelToPage(&item)
-		ps.loadPageIds(&page)
+
+		if loadPageIds {
+			ps.loadPageIds(&page)
+		}
+
 		pageId := item.ID
 
-		//start_p := time.Now()
 		f(&page)
-		//if time.Now().Sub(start_p).Seconds() > 0.5 {
-		//	elapsed := time.Since(start_p)
-		//	fmt.Println("single page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
-		//}
 
-		//fmt.Println("Doing page ", total)
 		total++
 
 		if update {
-			//updatedPageModel := ps.pageToPageModel(&page)
-			//updatedPageModel.ID = pageId
-			//ps.storePageIds(page)
-			//ps.updatePage("pages", updatedPageModel)
 			page.ID = pageId
-			ps.UpdatePagesWithNewCollection("pages_temp", &page)
+			ps.UpdatePagesWithNewCollection("pages_temp", updatePageIds, &page)
 		}
 	}
-
-
 
 	if update {
 		ps.MongoSession.DB("hugo").C("pages").DropCollection()
 		err := ps.MongoSession.Run(bson.D{{"renameCollection", "hugo.pages_temp"}, {"to", "hugo.pages"}}, nil)
-		//err := ps.MongoSession.DB("hugo").Run(bson.D{{"copyTo": "pages"}}, nil)
 
 		if err != nil {
 			fmt.Println(err.Error())
 			panic(err)
 		}
 
-		ps.CreateMongoIndex()
+
+
 	}
 
 	elapsed := time.Since(start)
@@ -418,6 +436,8 @@ func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
 	start := time.Now()
 
 	item := PageModel{}
+	ps.CreateSectionsIndex()
+
 	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Sort("+pagepath").Batch(3000).Prefetch(1).Iter()
 
 	total := 0
@@ -444,7 +464,7 @@ func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
 			//ps.storePageIds(page)
 			//ps.updatePage("pages", updatedPageModel)
 			page.ID = pageId
-			ps.UpdatePagesWithNewCollection("pages_temp", &page)
+			ps.UpdatePagesWithNewCollection("pages_temp", false, &page)
 		}
 	}
 
@@ -1096,17 +1116,17 @@ func (ps *PageStore) setPagePermalinkByPageHumanId(humanId string, permalink str
 }
 
 type LitePage struct {
-	Permalink        string
-	Title            string
-	Summary          template.HTML
-	Description      string
-	Image            string
-	TotalReviewCount float64
-	StarsClass       string
-	Price            float64
-	Truncated        bool
-	Tags             []string
-	MasterVariation  bool
+	Permalink        string        `json:"p,omitempty"`
+	Title            string        `json:"t,omitempty"`
+	Summary          template.HTML `json:"s,omitempty"`
+	Description      string        `json:"d,omitempty"`
+	Image            string        `json:"i,omitempty"`
+	TotalReviewCount float64       `json:"t2,omitempty"`
+	StarsClass       string        `json:"s,omitempty"`
+	Price            float64       `json:"p2,omitempty"`
+	Truncated        bool          `json:"t3,omitempty"`
+	Tags             []string      `json:"t4,omitempty"`
+	MasterVariation  bool          `json:"m,omitempty"`
 }
 
 func (ps *PageStore) setLitePageById(prefix string, id string, page *Page) {

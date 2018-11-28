@@ -339,7 +339,7 @@ func (s *Site) assembleSections() Pages {
 		counter++
 
 		return nil
-	}, true)
+	}, true, false, false, false)
 
 	//s.PageStore.printMemoryAndCaller("After first each in sections")
 
