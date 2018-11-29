@@ -1246,6 +1246,7 @@ func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
 }
 
 func (ps *PageStore) getPagePermalinkByPageHumanId(humanId string) string {
+	panic("Reimplement with lite pages")
 	permalink, found := ps.cache.Get(humanId + "_permalink")
 	if !found {
 		return ""

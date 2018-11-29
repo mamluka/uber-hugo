@@ -1660,9 +1660,9 @@ func (s *Site) preparePages() error {
 			errors = append(errors, err)
 		}
 
-		if p.params["page_human_id"] != nil {
-			s.PageStore.setPagePermalinkByPageHumanId(p.params["page_human_id"].(string), p.Permalink())
-		}
+		//if p.params["page_human_id"] != nil {
+		//	s.PageStore.setPagePermalinkByPageHumanId(p.params["page_human_id"].(string), p.Permalink())
+		//}
 
 		if p.params["page_human_id"] != nil {
 			s.PageStore.setLitePageById("lite", p.params["page_human_id"].(string), p)
