@@ -430,10 +430,12 @@ func (h *HugoSites) createMissingPages() error {
 			}
 		}
 
-		// Will create content-less root sections.
-		newSections := s.assembleSections()
-		s.PageStore.AddToAllPages(newSections...)
-		//newPages = append(newPages, newSections...)
+		if !s.Cfg.GetBool("noSections") {
+			// Will create content-less root sections.
+			newSections := s.assembleSections()
+			s.PageStore.AddToAllPages(newSections...)
+			//newPages = append(newPages, newSections...)
+		}
 
 		// taxonomy list and terms pages
 		taxonomies := s.Language.GetStringMapString("taxonomies")

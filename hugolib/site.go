@@ -173,6 +173,7 @@ func (s *Site) initRenderFormats() {
 	}, false, false, false, false)
 	//}
 
+
 	sort.Sort(formats)
 	s.renderFormats = formats
 }

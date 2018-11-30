@@ -211,6 +211,7 @@ func initializeFlags(cmd *cobra.Command, cfg config.Provider) {
 		"noReset",
 		"skipEach",
 		"noLoadContent",
+		"noSections",
 	}
 
 	for _, key := range persFlagKeys {
