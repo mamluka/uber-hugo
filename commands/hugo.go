@@ -212,6 +212,7 @@ func initializeFlags(cmd *cobra.Command, cfg config.Provider) {
 		"skipEach",
 		"noLoadContent",
 		"noSections",
+		"printEachProgress",
 	}
 
 	for _, key := range persFlagKeys {
@@ -257,6 +258,9 @@ If you need to set this configuration value from the command line, set it via an
 			cfg.Set(configKey, f.Value.String())
 		case "stringSlice":
 			bv, _ := flags.GetStringSlice(key)
+			cfg.Set(configKey, bv)
+		case "int32":
+			bv, _ := flags.GetInt32(key)
 			cfg.Set(configKey, bv)
 		default:
 			panic(fmt.Sprintf("update switch with %s", f.Value.Type()))

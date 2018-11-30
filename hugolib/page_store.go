@@ -14,6 +14,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	"html/template"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"runtime"
@@ -418,6 +419,8 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 		return
 	}
 
+	fmt.Println(" eachPages start ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
+
 	start := time.Now()
 
 	item := PageModel{}
@@ -428,6 +431,8 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 
 	items := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{}).Batch(500).Iter()
 	total := 0
+
+	eachProgress := ps.Cfg.GetInt("printEachProgress")
 
 	for items.Next(&item) {
 		page := ps.pageModelToPage(&item)
@@ -441,6 +446,10 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 		f(&page)
 
 		total++
+
+		if eachProgress > 0 && math.Mod(float64(total), float64(eachProgress)) == 0 {
+			fmt.Println("eachPages process ", total, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
+		}
 
 		if update {
 			page.ID = pageId
@@ -468,6 +477,8 @@ func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
 		fmt.Println("Skipping ", MyCallerLastFunc(MyCaller()))
 		return
 	}
+
+	fmt.Println(" eachPages with sort start ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
 
 	start := time.Now()
 
