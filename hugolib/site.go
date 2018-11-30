@@ -170,7 +170,7 @@ func (s *Site) initRenderFormats() {
 		}
 
 		return nil
-	}, true, false, false, false)
+	}, false, false, false, false)
 	//}
 
 	sort.Sort(formats)
@@ -288,6 +288,7 @@ func newSite(cfg deps.DepsCfg) (*Site, error) {
 	}
 
 	s.Info = newSiteInfo(siteBuilderCfg{s: s, pageCollections: c, language: s.Language})
+	sitePageStore.Cfg = cfg.Cfg
 
 	sitePageStore.initPageStore(s)
 
@@ -952,9 +953,13 @@ func (s *Site) process(config BuildCfg) (err error) {
 
 	s.timerStep("load i18n")
 
-	if err := s.readAndProcessContent(); err != nil {
-		return err
+	if !s.Cfg.GetBool("noLoadContent") {
+
+		if err := s.readAndProcessContent(); err != nil {
+			return err
+		}
 	}
+
 	s.timerStep("read and convert pages from source")
 
 	return err
@@ -1484,7 +1489,7 @@ func (s *Site) assembleMenus() {
 			}
 
 			return nil
-		}, true,false,false,false)
+		}, true, false, false, false)
 	}
 
 	// Add menu entries provided by pages
@@ -1499,7 +1504,7 @@ func (s *Site) assembleMenus() {
 		}
 		return nil
 
-	}, true,false,false,false)
+	}, true, false, false, false)
 
 	// Create Children Menus First
 	for _, e := range flat {
@@ -1601,7 +1606,7 @@ func (s *Site) assembleTaxonomies() {
 				}
 			}
 			return nil
-		}, false,false,false,false)
+		}, false, false, false, false)
 		//TODO David Sorting should work
 		//for k := range s.Taxonomies[plural] {
 		//	s.Taxonomies[plural][k].Sort()
@@ -1670,7 +1675,7 @@ func (s *Site) preparePages() error {
 		}
 
 		return nil
-	}, true,false,false,false)
+	}, true, false, false, false)
 
 	if len(errors) != 0 {
 		return fmt.Errorf("Prepare pages failed: %.100q…", errors)

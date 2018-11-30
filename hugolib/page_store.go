@@ -10,6 +10,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/go-redis/redis"
+	"github.com/gohugoio/hugo/config"
 	"github.com/patrickmn/go-cache"
 	"html/template"
 	"log"
@@ -45,6 +46,7 @@ type PageStore struct {
 
 	Site     *Site
 	SiteInfo *SiteInfo
+	Cfg      config.Provider
 
 	cache *cache.Cache
 
@@ -101,18 +103,25 @@ func (ps *PageStore) initPageStore(site *Site) {
 	handler := text.New(fi)
 	apex.SetHandler(handler)
 
-	ps.MongoSession.DB("hugo").C("pages").DropCollection()
-	ps.MongoSession.DB("hugo").C("pages_temp").DropCollection()
-	ps.MongoSession.DB("hugo").C("raw_pages").DropCollection()
-	ps.MongoSession.DB("hugo").C("weighted_pages").DropCollection()
-
-	ps.CreateWeightedPagesIndesx()
+	noReset := ps.Cfg.GetBool("noReset")
 
 	ps.Redis = redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 		DB:   12})
 
-	ps.Redis.FlushDB()
+	if !noReset {
+
+		fmt.Println("Mongo and redis reset")
+
+		ps.MongoSession.DB("hugo").C("pages").DropCollection()
+		ps.MongoSession.DB("hugo").C("pages_temp").DropCollection()
+		ps.MongoSession.DB("hugo").C("raw_pages").DropCollection()
+		ps.MongoSession.DB("hugo").C("weighted_pages").DropCollection()
+
+		ps.CreateWeightedPagesIndesx()
+
+		ps.Redis.FlushDB()
+	}
 
 	ps.PagesQueue = make([]*Page, 0)
 }
@@ -403,6 +412,12 @@ func (ps *PageStore) eachRawPages(f func(*Page)) {
 }
 
 func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds bool, updatePageIds bool, createMongoIndex bool) {
+
+	if ps.skipCallerFunc(MyCallerLastFunc(MyCaller())) {
+		fmt.Println("Skipping ", MyCallerLastFunc(MyCaller()))
+		return
+	}
+
 	start := time.Now()
 
 	item := PageModel{}
@@ -449,6 +464,11 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 }
 
 func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
+	if ps.skipCallerFunc(MyCallerLastFunc(MyCaller())) {
+		fmt.Println("Skipping ", MyCallerLastFunc(MyCaller()))
+		return
+	}
+
 	start := time.Now()
 
 	item := PageModel{}
@@ -497,6 +517,21 @@ func (ps *PageStore) eachPagesWithSort(f func(*Page) (error), update bool) {
 
 	elapsed := time.Since(start)
 	fmt.Println(" eachPages Took ", elapsed, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
+}
+
+func (ps *PageStore) skipCallerFunc(myLastCaller string) bool {
+	skipEach := ps.Cfg.GetStringSlice("skipEach")
+
+	return Contains(skipEach, myLastCaller)
+}
+
+func Contains(a []string, x string) bool {
+	for _, n := range a {
+		if x == n {
+			return true
+		}
+	}
+	return false
 }
 
 func (ps *PageStore) countPages() int {
@@ -1328,6 +1363,13 @@ func MyCaller() string {
 
 	// return its name
 	return fun.Name()
+}
+
+func MyCallerLastFunc(myCaller string) string {
+
+	splitCaller := strings.Split(myCaller, ".")
+
+	return splitCaller[len(splitCaller)-1]
 }
 
 func (ps *PageStore) printMemoryAndCaller(prefix string) {

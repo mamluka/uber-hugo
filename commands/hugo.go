@@ -208,6 +208,9 @@ func initializeFlags(cmd *cobra.Command, cfg config.Provider) {
 		"themesDir",
 		"verbose",
 		"verboseLog",
+		"noReset",
+		"skipEach",
+		"noLoadContent",
 	}
 
 	for _, key := range persFlagKeys {

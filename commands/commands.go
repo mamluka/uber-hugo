@@ -234,6 +234,10 @@ func (cc *hugoBuilderCommon) handleFlags(cmd *cobra.Command) {
 
 	cmd.Flags().StringSlice("disableKinds", []string{}, "disable different kind of pages (home, RSS etc.)")
 
+	cmd.Flags().StringSlice("skipEach", []string{}, "Skips mongo each calls, using the function call")
+	cmd.Flags().BoolP("noReset", "", false, "No not reset database and redis")
+	cmd.Flags().BoolP("noLoadContent", "", false, "No not reset database and redis")
+
 	// Set bash-completion.
 	// Each flag must first be defined before using the SetAnnotation() call.
 	_ = cmd.Flags().SetAnnotation("source", cobra.BashCompSubdirsInDir, []string{})
