@@ -437,63 +437,64 @@ func (h *HugoSites) createMissingPages() error {
 			//newPages = append(newPages, newSections...)
 		}
 
-		// taxonomy list and terms pages
-		taxonomies := s.Language.GetStringMapString("taxonomies")
-		if len(taxonomies) > 0 {
-			taxonomyPages := s.PageStore.findPagesByKind(KindTaxonomy)
-			taxonomyTermsPages := s.PageStore.findPagesByKind(KindTaxonomyTerm)
-			for _, plural := range taxonomies {
-				if s.isEnabled(KindTaxonomyTerm) {
-					foundTaxonomyTermsPage := false
-					for _, p := range taxonomyTermsPages {
-						if p.sections[0] == plural {
-							foundTaxonomyTermsPage = true
-							break
-						}
-					}
-
-					if !foundTaxonomyTermsPage {
-						n := s.newTaxonomyTermsPage(plural)
-						//s.Pages = append(s.Pages, n)
-						s.PageStore.AddToAllPages(n)
-						//newPages = append(newPages, n)
-					}
-				}
-
-				if s.isEnabled(KindTaxonomy) {
-					//s.PageStore.EachTaxonomiesKey(plural,func(key string) {
-					for key := range s.Taxonomies[plural] {
-						foundTaxonomyPage := false
-						origKey := key
-
-						if s.Info.preserveTaxonomyNames {
-							key = s.PathSpec.MakePathSanitized(key)
-						}
-						for _, p := range taxonomyPages {
-							// Some people may have /authors/MaxMustermann etc. as paths.
-							// p.sections contains the raw values from the file system.
-							// See https://github.com/gohugoio/hugo/issues/4238
-							singularKey := s.PathSpec.MakePathSanitized(p.sections[1])
-							if p.sections[0] == plural && singularKey == key {
-								foundTaxonomyPage = true
+		if !s.Cfg.GetBool("noTaxonomies") {
+			// taxonomy list and terms pages
+			taxonomies := s.Language.GetStringMapString("taxonomies")
+			if len(taxonomies) > 0 {
+				taxonomyPages := s.PageStore.findPagesByKind(KindTaxonomy)
+				taxonomyTermsPages := s.PageStore.findPagesByKind(KindTaxonomyTerm)
+				for _, plural := range taxonomies {
+					if s.isEnabled(KindTaxonomyTerm) {
+						foundTaxonomyTermsPage := false
+						for _, p := range taxonomyTermsPages {
+							if p.sections[0] == plural {
+								foundTaxonomyTermsPage = true
 								break
 							}
 						}
 
-						if !foundTaxonomyPage {
-							n := s.newTaxonomyPage(plural, origKey)
+						if !foundTaxonomyTermsPage {
+							n := s.newTaxonomyTermsPage(plural)
 							//s.Pages = append(s.Pages, n)
-							//newPages = append(newPages, n)
 							s.PageStore.AddToAllPages(n)
-
+							//newPages = append(newPages, n)
 						}
 					}
-					//})
+
+					if s.isEnabled(KindTaxonomy) {
+						//s.PageStore.EachTaxonomiesKey(plural,func(key string) {
+						for key := range s.Taxonomies[plural] {
+							foundTaxonomyPage := false
+							origKey := key
+
+							if s.Info.preserveTaxonomyNames {
+								key = s.PathSpec.MakePathSanitized(key)
+							}
+							for _, p := range taxonomyPages {
+								// Some people may have /authors/MaxMustermann etc. as paths.
+								// p.sections contains the raw values from the file system.
+								// See https://github.com/gohugoio/hugo/issues/4238
+								singularKey := s.PathSpec.MakePathSanitized(p.sections[1])
+								if p.sections[0] == plural && singularKey == key {
+									foundTaxonomyPage = true
+									break
+								}
+							}
+
+							if !foundTaxonomyPage {
+								n := s.newTaxonomyPage(plural, origKey)
+								//s.Pages = append(s.Pages, n)
+								//newPages = append(newPages, n)
+								s.PageStore.AddToAllPages(n)
+
+							}
+						}
+						//})
+					}
 				}
 			}
 		}
 	}
-
 	//if len(newPages) > 0 {
 	//	This resorting is unfortunate, but it also needs to be sorted
 	//	when sections are created.
