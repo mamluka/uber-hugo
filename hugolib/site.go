@@ -159,20 +159,16 @@ type siteRenderingContext struct {
 func (s *Site) initRenderFormats() {
 	formatSet := make(map[string]bool)
 	formats := output.Formats{}
+	p := s.PageStore.getHomePage()
 
-	s.PageStore.eachPages(func(p *Page) (error) {
-		//for _, p := range s.Pages {
-		for _, f := range p.outputFormats {
-			if !formatSet[f.Name] {
-				formats = append(formats, f)
-				formatSet[f.Name] = true
-			}
+	for _, f := range p.outputFormats {
+		if !formatSet[f.Name] {
+			formats = append(formats, f)
+			formatSet[f.Name] = true
 		}
+	}
 
-		return nil
-	}, false, false, false, false)
 	//}
-
 
 	sort.Sort(formats)
 	s.renderFormats = formats

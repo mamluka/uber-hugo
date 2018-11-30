@@ -1113,7 +1113,7 @@ func (ps *PageStore) taxonomyTermsWithBsonMByCount(bsonM bson.M) []WeightedPageP
 func (ps *PageStore) getHomePage() *Page {
 
 	pageModel := PageModel{}
-	err := ps.MongoSession.DB("hugo").C("pages").Find(bson.M{"kind": "home"}).One(&pageModel)
+	err := ps.MongoSession.DB("hugo").C("pages").FindId("home_").One(&pageModel)
 
 	if err != nil {
 		fmt.Println(err.Error())
