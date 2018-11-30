@@ -214,6 +214,7 @@ func initializeFlags(cmd *cobra.Command, cfg config.Provider) {
 		"noSections",
 		"printEachProgress",
 		"noTaxonomies",
+		"noAssemble",
 	}
 
 	for _, key := range persFlagKeys {

@@ -57,10 +57,12 @@ func (h *HugoSites) Build(config BuildCfg, events ...fsnotify.Event) error {
 		return err
 	}
 
-	if err := h.assemble(conf); err != nil {
-		return err
-	}
+	if !h.Cfg.GetBool("noAssemble") {
 
+		if err := h.assemble(conf); err != nil {
+			return err
+		}
+	}
 	if err := h.render(conf); err != nil {
 		return err
 	}
