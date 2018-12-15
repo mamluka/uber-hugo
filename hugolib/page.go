@@ -1067,7 +1067,7 @@ func (s *Site) newPageFromFile(fi *fileInfo) *Page {
 		s:              s,
 		SourceFileName: fi.Filename(),
 	}
-	page.ID = generatePageId(KindPage, getMD5Hash(fi.Filename())[:8])
+	page.ID = generatePageId(KindPage, getMD5Hash(fi.Filename())[:16])
 
 	return page
 }
