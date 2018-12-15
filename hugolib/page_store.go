@@ -12,6 +12,7 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/gohugoio/hugo/config"
 	"github.com/patrickmn/go-cache"
+	"github.com/tecbot/gorocksdb"
 	"html/template"
 	"log"
 	"math"
@@ -53,7 +54,8 @@ type PageStore struct {
 
 	MongoSession *mgo.Session
 
-	Redis *redis.Client
+	Redis   *redis.Client
+	RocksDb *gorocksdb.DB
 
 	SinceTime time.Time
 
@@ -125,6 +127,25 @@ func (ps *PageStore) initPageStore(site *Site) {
 	}
 
 	ps.PagesQueue = make([]*Page, 0)
+
+	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
+	bbto.SetBlockCache(gorocksdb.NewLRUCache(3 << 30))
+	opts := gorocksdb.NewDefaultOptions()
+	opts.SetBlockBasedTableFactory(bbto)
+	opts.SetCreateIfMissing(true)
+
+
+	dbPath := "/Users/davidmz/dev/clone-army/test-db"
+
+	os.RemoveAll(dbPath)
+	db, err := gorocksdb.OpenDb(opts, dbPath)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	ps.RocksDb = db
 }
 
 func (ps *PageStore) CreateWeightedPagesIndesx() {
@@ -135,44 +156,15 @@ func (ps *PageStore) CreateWeightedPagesIndesx() {
 		Background: true,
 		Sparse:     false,
 	}
-	// {"plural": "searches", "cardinality": 2, "searchkeys":
-	index2 := mgo.Index{
-		Key:        []string{"plural", "cardinality", "searchkeys"},
-		Unique:     false,
-		DropDups:   false,
-		Background: true,
-		Sparse:     false,
-	}
 
 	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
-	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
 
-	ps.MongoSession.DB("hugo").C("pages").DropAllIndexes()
-
-	if err != nil || err2 != nil {
+	if err != nil {
 		fmt.Println(err.Error())
 		panic(err)
 	}
 }
 func (ps *PageStore) CreateMongoIndex() {
-	// Index
-
-	index1 := mgo.Index{
-		Key:        []string{"key"},
-		Unique:     false,
-		DropDups:   false,
-		Background: true,
-		Sparse:     false,
-	}
-	// {"plural": "searches", "cardinality": 2, "searchkeys":
-	index2 := mgo.Index{
-		Key:        []string{"plural", "cardinality", "searchkeys"},
-		Unique:     false,
-		DropDups:   false,
-		Background: true,
-		Sparse:     false,
-	}
-
 	index3 := mgo.Index{
 		Key:        []string{"params.publishdate"},
 		Unique:     false,
@@ -181,25 +173,14 @@ func (ps *PageStore) CreateMongoIndex() {
 		Sparse:     false,
 	}
 
-	//index4 := mgo.Index{
-	//	Key:        []string{"params.title"},
-	//	Unique:     false,
-	//	DropDups:   false,
-	//	Background: true,
-	//	Sparse:     false,
-	//}
-
-	err := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index1)
-	err2 := ps.MongoSession.DB("hugo").C("weighted_pages").EnsureIndex(index2)
-
 	ps.MongoSession.DB("hugo").C("pages").DropAllIndexes()
 
 	err3 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index3)
 	//err4 := ps.MongoSession.DB("hugo").C("pages").EnsureIndex(index4)
 
-	if err != nil || err2 != nil || err3 != nil {
-		fmt.Println(err.Error())
-		panic(err)
+	if err3 != nil {
+		fmt.Println(err3.Error())
+		panic(err3)
 	}
 
 }
@@ -269,7 +250,7 @@ func (ps *PageStore) AddToAllRawrPages(pages ...*Page) {
 func (ps *PageStore) AddToAllPagesWithBuffer(flush bool, pages ...*Page) {
 	ps.PagesQueue = append(ps.PagesQueue, pages...)
 
-	if len(ps.PagesQueue) >= 1000 || flush {
+	if len(ps.PagesQueue) >= 500 || flush {
 		ps.AddToAllPages(ps.PagesQueue...)
 		ps.PagesQueue = ps.PagesQueue[:0]
 	}
@@ -312,7 +293,7 @@ func (ps *PageStore) UpdatePagesWithNewCollection(collectionName string, updateP
 		interfaceSlice[i] = pageModel
 	}
 
-	if (len(interfaceSlice) == 0) {
+	if len(interfaceSlice) == 0 {
 		return
 	}
 
@@ -355,16 +336,16 @@ func (ps *PageStore) AddWeightedPageIds(plural, key string, pws ...WeightedPage)
 			Key:    key,
 			PageId: PageId(p.ID),
 			Plural: plural,
-			Params: p.params,
+			//Params: p.params,
 		}
 
-		if plural == "searches" {
-			terms := strings.Split(key, "--")
-			searchKeysArray := terms[1:]
-			wp.SearchKeys = searchKeysArray
-			wp.Cardinality = len(searchKeysArray)
-			wp.SearchLabel = terms[0]
-		}
+		//if plural == "searches" {
+		//	terms := strings.Split(key, "--")
+		//	searchKeysArray := terms[1:]
+		//	wp.SearchKeys = searchKeysArray
+		//	wp.Cardinality = len(searchKeysArray)
+		//	wp.SearchLabel = terms[0]
+		//}
 
 		interfaceSlice[i] = wp
 
@@ -672,6 +653,7 @@ func (ps *PageStore) getPageIdsByTaxonomyKey(plural string, term string) PageIds
 }
 
 func (ps *PageStore) storePageIds(page Page) {
+
 	if len(page.PageIds) > 0 {
 		pageIds := make([]string, 0)
 
@@ -679,12 +661,17 @@ func (ps *PageStore) storePageIds(page Page) {
 			pageIds = append(pageIds, string(x))
 		}
 
-		ps.Redis.SAdd(page.ID+"_PageIds", pageIds)
+		pageIdsJson, _ := json.Marshal(pageIds)
+
+		//ps.Redis.SAdd(page.ID+"_PageIds", pageIds)
 		//fmt.Println("Written to redis pageIds:",resultPageIds)
+		ps.RDBSet(page.ID+"_PageIds", string(pageIdsJson))
 	}
 
 	if len(page.SubSectionsIds) > 0 {
-		ps.Redis.SAdd(page.ID+"_SubSectionsIds", page.SubSectionsIds)
+		subSectionsIdsJson, _ := json.Marshal(page.SubSectionsIds)
+
+		ps.RDBSet(page.ID+"_SubSectionsIds", string(subSectionsIdsJson))
 	}
 }
 
@@ -696,14 +683,26 @@ func (ps *PageStore) storeSubSectionsPageIds(pageId PageId, subSectionsPageIds P
 			pageIds = append(pageIds, string(x))
 		}
 
-		ps.Redis.SAdd(string(pageId)+"_SubSectionsIds", pageIds)
+		pageSubSectionIdsResultJson := ps.RDBGet(string(pageId) + "_SubSectionsIds")
+
+		pageSubSectionIdsResult := make([]PageId, 0)
+
+		json.Unmarshal([]byte(pageSubSectionIdsResultJson), &pageSubSectionIdsResult)
+
+		subSectionsIdsJson, _ := json.Marshal(append(subSectionsPageIds, pageSubSectionIdsResult...))
+
+		ps.RDBSet(string(pageId)+"_SubSectionsIds", string(subSectionsIdsJson))
 	}
 }
 
 func (ps *PageStore) loadPageIds(page *Page) {
 
 	//start_p := time.Now()
-	pageIdsResult, _ := ps.Redis.SMembers(page.ID + "_PageIds").Result()
+	pageIdsResultJson := ps.RDBGet(page.ID + "_PageIds")
+
+	pageIdsResult := make([]PageId, 0)
+
+	json.Unmarshal([]byte(pageIdsResultJson), &pageIdsResult)
 
 	for _, x := range pageIdsResult {
 		page.PageIds = append(page.PageIds, PageId(x))
@@ -711,7 +710,11 @@ func (ps *PageStore) loadPageIds(page *Page) {
 	page.PageIdsCount = len(page.PageIds)
 
 	//fmt.Println("Found ", len(page.PageIds), " for page ", page.ID)
-	pageSubSectionIdsResult, _ := ps.Redis.SMembers(page.ID + "_SubSectionsIds").Result()
+	pageSubSectionIdsResultJson := ps.RDBGet(page.ID + "_SubSectionsIds")
+
+	pageSubSectionIdsResult := make([]string, 0)
+
+	json.Unmarshal([]byte(pageSubSectionIdsResultJson), &pageSubSectionIdsResult)
 
 	for _, x := range pageSubSectionIdsResult {
 		page.SubSectionsIds = append(page.SubSectionsIds, x)
@@ -968,26 +971,14 @@ func (ps *PageStore) updatePage(collection string, pageModel PageModel) {
 func (ps *PageStore) getPageById(pageId PageId) *Page {
 	pageModel := PageModel{}
 
-	//cache_items, found := ps.cache.Get(string(pageId))
-
-	//if found {
-	//	cached_page := cache_items.(Page)
-	//	return &cached_page
-	//}
-
 	err := ps.MongoSession.DB("hugo").C("pages").FindId(pageId).One(&pageModel)
 
 	if err != nil {
-		fmt.Println(err.Error())
 		panic(err)
 	}
 
 	page := ps.pageModelToPage(&pageModel)
 	ps.loadPageIds(&page)
-
-	//if page.Kind != KindPage && page.permalink != "" {
-	//ps.cache.SetDefault(string(pageId), page)
-	//}
 
 	return &page
 }
@@ -1005,7 +996,7 @@ func (ps *PageStore) getPagesById(pageIds PageIds) Pages {
 	//fmt.Println("Bulk get pages took ", " ", elapsed, " ", MyCaller())
 
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("Error when getting pageIds ", pageIds, " error: ", err.Error())
 		panic(err)
 	}
 
@@ -1182,7 +1173,7 @@ type LitePage struct {
 	Description      string        `json:"d,omitempty"`
 	Image            string        `json:"i,omitempty"`
 	TotalReviewCount float64       `json:"t2,omitempty"`
-	StarsClass       string        `json:"s,omitempty"`
+	StarsClass       string        `json:"s2,omitempty"`
 	Price            float64       `json:"p2,omitempty"`
 	Truncated        bool          `json:"t3,omitempty"`
 	Tags             []string      `json:"t4,omitempty"`
@@ -1234,12 +1225,13 @@ func (ps *PageStore) setLitePageById(prefix string, id string, page *Page) {
 		panic(err)
 	}
 
-	ps.Redis.Set(prefix+"_"+id, listPageJson, 24*3600*time.Hour)
+	ps.RDBSet(prefix+"_"+id, string(listPageJson))
 }
 
 func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
 
-	litePageBytes, _ := ps.Redis.Get("lite_" + humanId).Result()
+	//litePageBytes, _ := ps.Redis.Get("lite_" + humanId).Result()
+	litePageBytes := ps.RDBGet("lite_" + humanId)
 
 	if len(litePageBytes) == 0 {
 		return nil
@@ -1252,8 +1244,8 @@ func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
 }
 
 func (ps *PageStore) getLitePageById(humanId string) *LitePage {
-
-	litePageBytes, _ := ps.Redis.Get("id_" + humanId).Result()
+	//litePageBytes, _ := ps.Redis.Get("id_" + humanId).Result()
+	litePageBytes := ps.RDBGet(("id_" + humanId))
 
 	if len(litePageBytes) == 0 {
 		return nil
@@ -1273,7 +1265,7 @@ func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
 		multiKeys = append(multiKeys, "id_"+string(v))
 	}
 
-	litePageArray, _ := ps.Redis.MGet(multiKeys...).Result()
+	litePageArray := ps.RDBMGet(multiKeys...)
 
 	if len(litePageArray) == 0 {
 		return nil
@@ -1283,7 +1275,7 @@ func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
 
 	for _, v := range litePageArray {
 		var litePage LitePage
-		json.Unmarshal([]byte(v.(string)), &litePage)
+		json.Unmarshal([]byte(v), &litePage)
 
 		litePages = append(litePages, litePage)
 	}
@@ -1299,6 +1291,50 @@ func (ps *PageStore) getPagePermalinkByPageHumanId(humanId string) string {
 	}
 
 	return permalink.(string)
+}
+
+func (ps *PageStore) RDBGet(key string) string {
+	ro := gorocksdb.NewDefaultReadOptions()
+	slice, err := ps.RocksDb.Get(ro, []byte( key))
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+	defer slice.Free()
+	return string(slice.Data())
+
+}
+
+func (ps *PageStore) RDBMGet(keys ... string) []string {
+	ro := gorocksdb.NewDefaultReadOptions()
+
+	byteKeys := make([][]byte, 0)
+
+	for _, x := range keys {
+		byteKeys = append(byteKeys, []byte(x))
+	}
+
+	slices, err := ps.RocksDb.MultiGet(ro, byteKeys...)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		panic(err)
+	}
+
+	returnStrings := make([]string, 0)
+
+	for _, x := range slices {
+		returnStrings = append(returnStrings, string(x.Data()))
+		x.Free()
+	}
+
+	return returnStrings
+
+}
+func (ps *PageStore) RDBSet(key string, value string) {
+	wo := gorocksdb.NewDefaultWriteOptions()
+	ps.RocksDb.Put(wo, []byte( key), []byte(value))
 }
 
 func (ps *PageStore) startDebug() {

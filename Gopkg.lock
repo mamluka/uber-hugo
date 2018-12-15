@@ -515,6 +515,14 @@
   version = "v1.2.1"
 
 [[projects]]
+  branch = "master"
+  digest = "1:c01fe1826e229acf1eddd9f6f34a6c8fcaa3015f861c8c4097e88223b810ebcb"
+  name = "github.com/tecbot/gorocksdb"
+  packages = ["."]
+  pruneopts = ""
+  revision = "8752a943348155073ae407010e2b75c40480271a"
+
+[[projects]]
   digest = "1:bf83d7fb8e87f39806ce3550657a8a31bbeb96a35eb105bd98e7362559fba27f"
   name = "github.com/yosssi/ace"
   packages = ["."]
@@ -653,6 +661,7 @@
     "github.com/spf13/viper",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
+    "github.com/tecbot/gorocksdb",
     "github.com/yosssi/ace",
     "golang.org/x/image/webp",
     "golang.org/x/net/context",

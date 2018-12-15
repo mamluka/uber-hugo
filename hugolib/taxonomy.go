@@ -48,10 +48,10 @@ type WeightedPageIds struct {
 	PageId      PageId
 	Key         string
 	Plural      string
-	Params      map[string]interface{}
-	SearchKeys  []string
-	Cardinality int
-	SearchLabel string
+	//Params      map[string]interface{}
+	//SearchKeys  []string
+	//Cardinality int
+	//SearchLabel string
 }
 
 func (w WeightedPage) String() string {

@@ -14,6 +14,8 @@
 package hugolib
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"html/template"
@@ -1672,7 +1674,7 @@ func (s *Site) preparePages() error {
 		}
 
 		return nil
-	}, true, false, false, false)
+	}, true, false, true, false)
 
 	if len(errors) != 0 {
 		return fmt.Errorf("Prepare pages failed: %.100q…", errors)
@@ -1804,6 +1806,7 @@ func (s *Site) renderAndWritePage(statCounter *uint64, name string, dest string,
 		return nil
 	}
 
+
 	outBuffer := bp.GetBuffer()
 	defer bp.PutBuffer(outBuffer)
 
@@ -1846,7 +1849,16 @@ func (s *Site) renderAndWritePage(statCounter *uint64, name string, dest string,
 		return nil
 	}
 
-	return s.publish(statCounter, dest, outBuffer)
+
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+
+	string2 := outBuffer.String()
+
+	gz.Write([]byte(string2))
+	gz.Close()
+
+	return s.publish(statCounter, dest, &b)
 }
 
 func (s *Site) renderForLayouts(name string, d interface{}, w io.Writer, layouts ...string) (err error) {
@@ -2017,7 +2029,7 @@ func (siteInfo *SiteInfo) RegularPageIds() PageIds {
 }
 
 func (siteInfo *SiteInfo) AllPageIds() PageIds {
-	return siteInfo.s.PageStore.getPageIds(bson.M{}, []string{"-params.title"})
+	return siteInfo.s.PageStore.getPageIds(bson.M{}, []string{"-_id"})
 }
 
 func (siteInfo *SiteInfo) RegularPageIdsBySection(section string, sortField string) PageIds {

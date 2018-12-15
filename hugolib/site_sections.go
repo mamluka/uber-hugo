@@ -39,7 +39,16 @@ func (s *SiteInfo) Home() (*Page, error) {
 // Parent returns a section's parent section or a page's section.
 // To get a section's subsections, see Page's Sections method.
 func (p *Page) Parent() *Page {
-	return p.s.PageStore.getPageById(p.ParentId)
+	var page *Page
+	defer func() {
+		if r := recover(); r != nil {
+			page = nil
+		}
+
+	}()
+
+	page = p.s.PageStore.getPageById(p.ParentId)
+	return page
 }
 
 // CurrentSection returns the page's current section or the page itself if home or a section.
