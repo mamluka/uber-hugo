@@ -241,7 +241,7 @@ func (cc *hugoBuilderCommon) handleFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("noAssemble", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noTaxonomies", "", false, "No not reset database and redis")
 	cmd.Flags().Int32("printEachProgress", 0, "No not reset database and redis")
-
+	cmd.Flags().StringP("rocketDbDir", "", "/Users/davidmz/dev/clone-army/test-db", "filesystem path to themes directory")
 	// Set bash-completion.
 	// Each flag must first be defined before using the SetAnnotation() call.
 	_ = cmd.Flags().SetAnnotation("source", cobra.BashCompSubdirsInDir, []string{})

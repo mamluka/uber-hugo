@@ -134,10 +134,15 @@ func (ps *PageStore) initPageStore(site *Site) {
 	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
 
+	dbPath := ps.Cfg.GetString("rocketDbDir")
 
-	dbPath := "/Users/davidmz/dev/clone-army/test-db"
+	fmt.Println(dbPath)
 
-	os.RemoveAll(dbPath)
+
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		os.RemoveAll(dbPath)
+	}
+
 	db, err := gorocksdb.OpenDb(opts, dbPath)
 
 	if err != nil {

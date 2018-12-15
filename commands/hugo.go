@@ -215,6 +215,7 @@ func initializeFlags(cmd *cobra.Command, cfg config.Provider) {
 		"printEachProgress",
 		"noTaxonomies",
 		"noAssemble",
+		"rocketDbDir",
 	}
 
 	for _, key := range persFlagKeys {
