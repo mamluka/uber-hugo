@@ -298,7 +298,7 @@ func (s *Site) assembleSections() Pages {
 	)
 
 	counter := 0
-	home := s.PageStore.findFirstPageByKindIn(KindHome)
+	home := s.PageStore.getHomePage()
 
 	//s.PageStore.printMemoryAndCaller("Before first each in sections")
 
