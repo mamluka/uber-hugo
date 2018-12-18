@@ -188,27 +188,27 @@ func (h *HugoSites) assemble(config *BuildCfg) error {
 
 	for _, s := range h.Sites {
 		//for _, pages := range []Pages{s.Pages, s.headlessPages} {
-		s.PageStore.eachPagesWithHeadless(func(p *Page)(error) {
-				// May have been set in front matter
-				if len(p.outputFormats) == 0 {
-					p.outputFormats = s.outputFormats[p.Kind]
-				}
+		s.PageStore.eachPages(func(p *Page) (error) {
+			// May have been set in front matter
+			if len(p.outputFormats) == 0 {
+				p.outputFormats = s.outputFormats[p.Kind]
+			}
 
-				if p.headless {
-					// headless = 1 output format only
-					p.outputFormats = p.outputFormats[:1]
-				}
-				for _, r := range p.Resources.ByType(pageResourceType) {
-					r.(*Page).outputFormats = p.outputFormats
-				}
+			if p.headless {
+				// headless = 1 output format only
+				p.outputFormats = p.outputFormats[:1]
+			}
+			for _, r := range p.Resources.ByType(pageResourceType) {
+				r.(*Page).outputFormats = p.outputFormats
+			}
 
-				if err := p.initPaths(); err != nil {
-					return err
-				}
+			if err := p.initPaths(); err != nil {
+				return err
+			}
 
-				return nil
+			return nil
 
-		})
+		}, true, false, false, false)
 		//s.assembleMenus()
 		//s.refreshPageCaches()
 		//s.setupSitePages()

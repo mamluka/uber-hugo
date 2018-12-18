@@ -216,6 +216,7 @@ func initializeFlags(cmd *cobra.Command, cfg config.Provider) {
 		"noTaxonomies",
 		"noAssemble",
 		"rocketDbDir",
+		"gzip",
 	}
 
 	for _, key := range persFlagKeys {

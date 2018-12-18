@@ -236,6 +236,7 @@ func (cc *hugoBuilderCommon) handleFlags(cmd *cobra.Command) {
 
 	cmd.Flags().StringSlice("skipEach", []string{}, "Skips mongo each calls, using the function call")
 	cmd.Flags().BoolP("noReset", "", false, "No not reset database and redis")
+	cmd.Flags().BoolP("gzip", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noLoadContent", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noSections", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noAssemble", "", false, "No not reset database and redis")

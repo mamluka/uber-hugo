@@ -1806,7 +1806,6 @@ func (s *Site) renderAndWritePage(statCounter *uint64, name string, dest string,
 		return nil
 	}
 
-
 	outBuffer := bp.GetBuffer()
 	defer bp.PutBuffer(outBuffer)
 
@@ -1849,16 +1848,20 @@ func (s *Site) renderAndWritePage(statCounter *uint64, name string, dest string,
 		return nil
 	}
 
+	if s.Cfg.GetBool("gzip") {
 
-	var b bytes.Buffer
-	gz := gzip.NewWriter(&b)
+		var b bytes.Buffer
+		gz := gzip.NewWriter(&b)
 
-	string2 := outBuffer.String()
+		string2 := outBuffer.String()
 
-	gz.Write([]byte(string2))
-	gz.Close()
+		gz.Write([]byte(string2))
+		gz.Close()
+		return s.publish(statCounter, dest, &b)
+	}
 
-	return s.publish(statCounter, dest, &b)
+	return s.publish(statCounter, dest, outBuffer)
+
 }
 
 func (s *Site) renderForLayouts(name string, d interface{}, w io.Writer, layouts ...string) (err error) {
