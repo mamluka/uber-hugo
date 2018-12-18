@@ -418,11 +418,11 @@ func (h *HugoSites) createMissingPages() error {
 	for _, s := range h.Sites {
 		if s.isEnabled(KindHome) {
 			// home pages
-			home := s.PageStore.findPagesByKind(KindHome)
-			if len(home) > 1 {
-				panic("Too many homes")
-			}
-			if len(home) == 0 {
+			home := s.PageStore.getHomePage()
+			//if len(home) > 1 {
+			//	panic("Too many homes")
+			//}
+			if home == nil {
 				n := s.newHomePage()
 				//s.Pages = append(s.Pages, n)
 				s.PageStore.AddToAllPages(n)

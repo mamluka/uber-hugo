@@ -1109,6 +1109,10 @@ func (ps *PageStore) getHomePage() *Page {
 	pageModel := PageModel{}
 	err := ps.MongoSession.DB("hugo").C("pages").FindId("home_").One(&pageModel)
 
+	if err != nil && err.Error() == "not found" {
+		return nil
+	}
+
 	if err != nil {
 		fmt.Println(err.Error())
 		panic(err)
