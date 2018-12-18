@@ -134,7 +134,7 @@ func (ps *PageStore) initPageStore(site *Site) {
 	}
 
 	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbto.SetBlockCache(gorocksdb.NewLRUCache(1024 * 1024 * 1024 * 2))
+	bbto.SetBlockCache(gorocksdb.NewLRUCache(1024 * 1024 * 1024 * 0.5))
 	opts := gorocksdb.NewDefaultOptions()
 	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
