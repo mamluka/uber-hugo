@@ -178,8 +178,8 @@ func pageRenderer(s *Site, pages <-chan *Page, results chan<- error, wg *sync.Wa
 				}
 
 				if time.Now().Sub(start_p).Seconds() > 0.2 {
-					elapsed := time.Since(start_p)
-					fmt.Println("render page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+					//elapsed := time.Since(start_p)
+					//fmt.Println("render page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
 				}
 
 			}

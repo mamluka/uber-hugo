@@ -54,8 +54,9 @@ type PageStore struct {
 
 	MongoSession *mgo.Session
 
-	Redis   *redis.Client
-	RocksDb *gorocksdb.DB
+	Redis    *redis.Client
+	RocksDb  *gorocksdb.DB
+	LRUCache *gorocksdb.Cache
 
 	SinceTime time.Time
 
@@ -134,12 +135,19 @@ func (ps *PageStore) initPageStore(site *Site) {
 	}
 
 	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbto.SetBlockCache(gorocksdb.NewLRUCache(1024 * 1024 * 1024 * 0.5))
+	lruCache := gorocksdb.NewLRUCache(1024 * 1024 * 100)
+
+	ps.LRUCache = lruCache
+
+	bbto.SetBlockCache(lruCache)
 	opts := gorocksdb.NewDefaultOptions()
 	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
 
 	db, err := gorocksdb.OpenDb(opts, dbPath)
+	fmt.Println(db.GetProperty("rocksdb.estimate-table-readers-mem"))
+
+	fmt.Println(lruCache.GetUsage())
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -432,7 +440,7 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 		total++
 
 		if eachProgress > 0 && math.Mod(float64(total), float64(eachProgress)) == 0 {
-			fmt.Println("eachPages process ", total, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update)
+			fmt.Println("eachPages process ", total, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update, "rodb cach ", ps.LRUCache.GetUsage())
 		}
 
 		if update {
