@@ -112,6 +112,8 @@ func (ps *PageStore) initPageStore(site *Site) {
 		Addr: "localhost:6379",
 		DB:   12})
 
+	dbPath := ps.Cfg.GetString("rocketDbDir")
+
 	if !noReset {
 
 		fmt.Println("Mongo and redis reset")
@@ -124,24 +126,18 @@ func (ps *PageStore) initPageStore(site *Site) {
 		ps.CreateWeightedPagesIndesx()
 
 		ps.Redis.FlushDB()
-	}
 
-	ps.PagesQueue = make([]*Page, 0)
+		if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+			os.RemoveAll(dbPath)
+		}
+
+	}
 
 	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
 	bbto.SetBlockCache(gorocksdb.NewLRUCache(3 << 30))
 	opts := gorocksdb.NewDefaultOptions()
 	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
-
-	dbPath := ps.Cfg.GetString("rocketDbDir")
-
-	fmt.Println(dbPath)
-
-
-	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		os.RemoveAll(dbPath)
-	}
 
 	db, err := gorocksdb.OpenDb(opts, dbPath)
 
@@ -151,6 +147,8 @@ func (ps *PageStore) initPageStore(site *Site) {
 	}
 
 	ps.RocksDb = db
+
+	ps.PagesQueue = make([]*Page, 0)
 }
 
 func (ps *PageStore) CreateWeightedPagesIndesx() {
