@@ -441,7 +441,8 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 		total++
 
 		if eachProgress > 0 && math.Mod(float64(total), float64(eachProgress)) == 0 {
-			fmt.Println("eachPages process ", total, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update, "rodb cach ", ps.LRUCache.GetUsage())
+			elapsed_progress := time.Since(start)
+			fmt.Println("eachPages process ", total, " ", MyCaller(), " ", printMemory(), "Mb", " update pages ", update, "took ", elapsed_progress)
 		}
 
 		if update {
