@@ -708,7 +708,7 @@ func (ps *PageStore) storeSubSectionsPageIds(pageId PageId, subSectionsPageIds P
 
 func (ps *PageStore) loadPageIds(page *Page) {
 
-	//start_p := time.Now()
+	start_p := time.Now()
 	pageIdsResultJson := ps.RDBGet(page.ID + "_PageIds")
 
 	pageIdsResult := make([]PageId, 0)
@@ -732,8 +732,8 @@ func (ps *PageStore) loadPageIds(page *Page) {
 	}
 	page.SubSectionsIdsCount = len(page.SubSectionsIds)
 
-	//elapsed := time.Since(start_p)
-	//fmt.Println("Redis get ids ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+	elapsed := time.Since(start_p)
+	fmt.Println("Redis get ids ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
 
 }
 
@@ -1259,8 +1259,7 @@ func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
 }
 
 func (ps *PageStore) getLitePageById(humanId string) *LitePage {
-	//litePageBytes, _ := ps.Redis.Get("id_" + humanId).Result()
-	litePageBytes := ps.RDBGet(("id_" + humanId))
+	litePageBytes := ps.RDBGet("id_" + humanId)
 
 	if len(litePageBytes) == 0 {
 		return nil
