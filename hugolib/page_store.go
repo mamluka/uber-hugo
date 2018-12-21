@@ -1245,7 +1245,7 @@ func (ps *PageStore) setLitePageById(prefix string, id string, page *Page) {
 }
 
 func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
-
+	start_p := time.Now()
 	//litePageBytes, _ := ps.Redis.Get("lite_" + humanId).Result()
 	litePageBytes := ps.RDBGet("lite_" + humanId)
 
@@ -1256,10 +1256,15 @@ func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
 	var litePage LitePage
 	json.Unmarshal([]byte(litePageBytes), &litePage)
 
+	elapsed := time.Since(start_p)
+	fmt.Println("Redis get ids ", humanId, " ", elapsed, " ", MyCaller())
+
 	return &litePage
+
 }
 
 func (ps *PageStore) getLitePageById(humanId string) *LitePage {
+	start_p := time.Now()
 	litePageBytes := ps.RDBGet("id_" + humanId)
 
 	if len(litePageBytes) == 0 {
@@ -1269,11 +1274,14 @@ func (ps *PageStore) getLitePageById(humanId string) *LitePage {
 	var litePage LitePage
 	json.Unmarshal([]byte(litePageBytes), &litePage)
 
+	elapsed := time.Since(start_p)
+	fmt.Println("Redis get ids ", humanId, " ", elapsed, " ", MyCaller())
+
 	return &litePage
 }
 
 func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
-
+	start_p := time.Now()
 	multiKeys := make([]string, 0)
 
 	for _, v := range humanIds {
@@ -1294,6 +1302,9 @@ func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
 
 		litePages = append(litePages, litePage)
 	}
+
+	elapsed := time.Since(start_p)
+	fmt.Println("Redis get ids ", len(humanIds), " ", elapsed, " ", MyCaller())
 
 	return litePages
 }
