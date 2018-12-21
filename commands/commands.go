@@ -240,6 +240,7 @@ func (cc *hugoBuilderCommon) handleFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("noLoadContent", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noSections", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noAssemble", "", false, "No not reset database and redis")
+	cmd.Flags().BoolP("noMongoindex", "", false, "No not reset database and redis")
 	cmd.Flags().BoolP("noTaxonomies", "", false, "No not reset database and redis")
 	cmd.Flags().Int32("printEachProgress", 0, "No not reset database and redis")
 	cmd.Flags().StringP("rocketDbDir", "", "/Users/davidmz/dev/clone-army/test-db", "filesystem path to themes directory")

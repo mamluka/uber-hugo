@@ -34,6 +34,8 @@ func (s *Site) renderPages(cfg *BuildCfg) error {
 
 	numWorkers := getGoMaxProcs()
 
+	fmt.Println("Render using ", numWorkers, "workers")
+
 	wg := &sync.WaitGroup{}
 
 	for i := 0; i < numWorkers; i++ {
@@ -177,10 +179,10 @@ func pageRenderer(s *Site, pages <-chan *Page, results chan<- error, wg *sync.Wa
 					}
 				}
 
-				if time.Now().Sub(start_p).Seconds() > 0.2 {
-					//elapsed := time.Since(start_p)
-					//fmt.Println("render page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
-				}
+				//if time.Now().Sub(start_p).Seconds() > 0.2 {
+				elapsed := time.Since(start_p)
+				fmt.Println("render page time ", page.ID, " ", page.Kind, " ", elapsed, " ", MyCaller())
+				//}
 
 			}
 

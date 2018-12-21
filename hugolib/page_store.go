@@ -418,7 +418,7 @@ func (ps *PageStore) eachPages(f func(*Page) (error), update bool, loadPageIds b
 
 	item := PageModel{}
 
-	if createMongoIndex {
+	if createMongoIndex && !ps.Cfg.GetBool("noMongoIndex") {
 		ps.CreateMongoIndex()
 	}
 
@@ -1257,7 +1257,7 @@ func (ps *PageStore) getLitePageByHumanId(humanId string) *LitePage {
 	json.Unmarshal([]byte(litePageBytes), &litePage)
 
 	elapsed := time.Since(start_p)
-	fmt.Println("Redis get ids ", humanId, " ", elapsed, " ", MyCaller())
+	fmt.Println("getLitePageByHumanId ", humanId, " ", elapsed, " ", MyCaller())
 
 	return &litePage
 
@@ -1275,7 +1275,7 @@ func (ps *PageStore) getLitePageById(humanId string) *LitePage {
 	json.Unmarshal([]byte(litePageBytes), &litePage)
 
 	elapsed := time.Since(start_p)
-	fmt.Println("Redis get ids ", humanId, " ", elapsed, " ", MyCaller())
+	fmt.Println("getLitePageById ", humanId, " ", elapsed, " ", MyCaller())
 
 	return &litePage
 }
@@ -1304,7 +1304,7 @@ func (ps *PageStore) getLitePagesById(humanIds PageIds) []LitePage {
 	}
 
 	elapsed := time.Since(start_p)
-	fmt.Println("Redis get ids ", len(humanIds), " ", elapsed, " ", MyCaller())
+	fmt.Println("getLitePagesById ", len(humanIds), " ", elapsed, " ", MyCaller())
 
 	return litePages
 }

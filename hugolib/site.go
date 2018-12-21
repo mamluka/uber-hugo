@@ -1939,6 +1939,7 @@ func getGoMaxProcs() int {
 			return p
 		}
 	}
+
 	return 1
 }
 
