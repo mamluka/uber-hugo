@@ -34,6 +34,10 @@ func (s *Site) renderPages(cfg *BuildCfg) error {
 
 	numWorkers := getGoMaxProcs()
 
+	if s.Cfg.IsSet("renderThreads") {
+		numWorkers = s.Cfg.GetInt("renderThreads")
+	}
+
 	fmt.Println("Render using ", numWorkers, "workers")
 
 	wg := &sync.WaitGroup{}

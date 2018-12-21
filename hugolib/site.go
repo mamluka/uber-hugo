@@ -1932,8 +1932,6 @@ func (s *Site) publish(statCounter *uint64, path string, r io.Reader) (err error
 }
 
 func getGoMaxProcs() int {
-	//return 1
-
 	if gmp := os.Getenv("GOMAXPROCS"); gmp != "" {
 		if p, err := strconv.Atoi(gmp); err != nil {
 			return p
