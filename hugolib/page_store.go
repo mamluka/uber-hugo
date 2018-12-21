@@ -145,14 +145,15 @@ func (ps *PageStore) initPageStore(site *Site) {
 	opts.SetCreateIfMissing(true)
 
 	db, err := gorocksdb.OpenDb(opts, dbPath)
-	fmt.Println(db.GetProperty("rocksdb.estimate-table-readers-mem"))
-
-	fmt.Println(lruCache.GetUsage())
 
 	if err != nil {
 		fmt.Println(err.Error())
 		panic(err)
 	}
+
+	fmt.Println(db.GetProperty("rocksdb.estimate-table-readers-mem"))
+
+	fmt.Println(lruCache.GetUsage())
 
 	ps.RocksDb = db
 
